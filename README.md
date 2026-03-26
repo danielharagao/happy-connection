@@ -70,33 +70,25 @@ Backend real de WhatsApp para integração CRM/cockpit em:
 - `apps/openclaw-cockpit/wa-backend`
 - Documentação: `apps/openclaw-cockpit/wa-backend/README.md`
 
-## AI SDR — Qualificacao automatica via WhatsApp
+## AI SDR — Camada de Dados para Qualificacao via WhatsApp
 
-Sistema de SDR (Sales Development Representative) com IA que qualifica leads de anuncios pagos via WhatsApp e agenda ligacoes para o closer humano.
+Camada de dados para o sistema SDR. O agente IA roda localmente (Genie), este CRM serve como fonte de dados (scripts, conversas, metricas). Nenhuma dependencia de IA/Claude aqui.
 
-### Como funciona
+### Arquitetura
 
-1. Lead preenche formulario (anuncio pago) -> CRM recebe via webhook
-2. CRM dispara `POST /api/sdr/webhook` com dados do lead
-3. AI SDR envia primeira mensagem no WhatsApp (via Baileys backend)
-4. Conversa de qualificacao usando Claude (perfil, dores, urgencia, orcamento)
-5. IA roteia para Curso de BA ou Mentoria
-6. Se qualificado -> agenda ligacao via `/api/sdr/schedule`
-7. Closer humano recebe resumo da qualificacao nas notas do lead
+```
+Agente SDR (local, Genie) <--API--> CRM (VPS, este repo) <--Baileys--> WhatsApp
+```
+
+1. Agente SDR local le scripts do CRM via API
+2. Agente envia mensagens no WhatsApp via omni
+3. Agente registra conversas e qualificacoes no CRM via API
+4. CRM exibe dashboard e permite editar scripts na UI
 
 ### Setup
 
 ```bash
-# 1. Instalar dependencia
-pip install anthropic
-
-# 2. Configurar API key no .env ou environment
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# 3. Garantir que wa-backend esta rodando (porta 8790)
-cd wa-backend && npm start
-
-# 4. Iniciar o CRM
+# Nenhuma dependencia extra - so Flask
 python3 app.py
 ```
 
@@ -104,17 +96,18 @@ python3 app.py
 
 | Metodo | Endpoint | Descricao |
 |--------|----------|-----------|
-| `POST` | `/api/sdr/webhook` | Dispara SDR para novo lead (`lead_id`, `name`, `phone`, `source`) |
-| `POST` | `/api/sdr/reply` | Processa resposta do lead (`lead_id`, `message`) |
-| `POST` | `/api/sdr/schedule` | Agenda ligacao para lead qualificado |
-| `GET` | `/api/sdr/conversations` | Lista todas as conversas SDR |
-| `GET` | `/api/sdr/conversations/<lead_id>` | Detalhes de uma conversa |
-| `POST` | `/api/sdr/conversations/<lead_id>/state` | Atualiza estado da conversa |
-| `GET` | `/api/sdr/dashboard` | Metricas do funil SDR |
 | `GET` | `/api/sdr/scripts` | Lista scripts de qualificacao |
+| `GET` | `/api/sdr/scripts/<id>` | Detalhes de um script |
 | `POST` | `/api/sdr/scripts` | Cria novo script |
 | `PUT` | `/api/sdr/scripts/<id>` | Atualiza script |
 | `DELETE` | `/api/sdr/scripts/<id>` | Remove script |
+| `GET` | `/api/sdr/conversations` | Lista todas as conversas SDR |
+| `GET` | `/api/sdr/conversations/<lead_id>` | Detalhes de uma conversa |
+| `POST` | `/api/sdr/conversations` | Cria conversa (agente chama ao iniciar lead) |
+| `POST` | `/api/sdr/conversations/<lead_id>/message` | Registra mensagem na conversa |
+| `POST` | `/api/sdr/conversations/<lead_id>/state` | Atualiza estado da conversa |
+| `POST` | `/api/sdr/conversations/<lead_id>/qualification` | Atualiza dados de qualificacao |
+| `GET` | `/api/sdr/dashboard` | Metricas do funil SDR |
 
 ### Scripts Live
 
@@ -132,10 +125,7 @@ Scripts de qualificacao sao editaveis pela UI (aba "Scripts") sem precisar de de
 
 ### Variaveis de ambiente
 
-| Variavel | Descricao | Default |
-|----------|-----------|---------|
-| `ANTHROPIC_API_KEY` | Chave da API Anthropic (obrigatoria) | - |
-| `SDR_MODEL` | Modelo Claude a usar | `claude-sonnet-4-20250514` |
+Nenhuma variavel adicional necessaria para o SDR. A IA roda no agente local, nao no CRM.
 
 ## Test / Checks
 

@@ -1,23 +1,18 @@
 """
-AI SDR Engine — Qualification conversations via Claude + WhatsApp.
+SDR Data Layer — Conversations, scripts, and metrics storage.
 
-Handles the lifecycle of SDR qualification conversations:
-  webhook → first message → qualification dialogue → schedule/nurture/escalate
+This module manages SDR data for the CRM. The actual AI conversation
+logic runs on the local Genie SDR agent, not in the CRM.
+The CRM serves as the data layer (scripts, conversations, metrics).
 """
 from __future__ import annotations
 
 import json
-import os
-import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-
-try:
-    import anthropic
-except ImportError:
-    anthropic = None  # type: ignore[assignment]
+import os
 
 BASE_DIR = Path(__file__).resolve().parent
 APP_ENV = (os.environ.get("OPENCLAW_COCKPIT_ENV") or os.environ.get("APP_ENV") or "prod").strip().lower()
@@ -30,9 +25,6 @@ else:
 
 CONVERSATIONS_FILE = DATA_DIR / "sdr_conversations.json"
 SCRIPTS_FILE = DATA_DIR / "sdr_scripts.json"
-
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-ANTHROPIC_MODEL = os.environ.get("SDR_MODEL", "claude-sonnet-4-20250514")
 
 # ── Conversation State ──
 
@@ -60,7 +52,7 @@ def list_conversations() -> dict[str, Any]:
     return _load_conversations()
 
 
-def start_conversation(lead_id: str, name: str, phone: str, source: str = "", form_data: dict | None = None) -> dict[str, Any]:
+def create_conversation(lead_id: str, name: str, phone: str, source: str = "", form_data: dict | None = None) -> dict[str, Any]:
     convs = _load_conversations()
     lead_key = str(lead_id)
 
@@ -158,16 +150,10 @@ DEFAULT_SCRIPT = {
         "- Se a pessoa mencionar orcamento, mencione que existem boas opcoes de pagamento\n"
         "- Quando tiver informacao suficiente, proponha agendar uma ligacao\n"
         "- Se pedirem para falar com humano, diga que vai transferir\n"
-        "- NUNCA invente informacoes sobre precos ou conteudo do curso\n\n"
-        "Ao final de cada resposta, inclua uma analise JSON (o usuario nao vera isso) no formato:\n"
-        "```json\n"
-        '{"qualification": {"profile_fit": "course|mentoring|unclear|none", "urgency": "high|medium|low|unknown", '
-        '"budget": "ready|flexible|concerned|unknown", "product_route": "course|mentoring|both|unclear", '
-        '"pain_points": ["lista de dores mencionadas"], "ready_to_schedule": true/false, "needs_escalation": false}}\n'
-        "```\n"
+        "- NUNCA invente informacoes sobre precos ou conteudo do curso\n"
     ),
     "first_message_template": (
-        "Oi {name}! 👋 Eu sou a assistente digital do Daniel Aragao. "
+        "Oi {name}! Eu sou a assistente digital do Daniel Aragao. "
         "Vi que voce se interessou pelo nosso conteudo de Business Analysis. "
         "Posso te ajudar a entender qual programa se encaixa melhor pra voce. "
         "Me conta um pouco: voce ja trabalha com analise de negocios ou ta buscando fazer essa transicao?"
@@ -262,125 +248,9 @@ def delete_script(script_id: str) -> bool:
     return False
 
 
-# ── Claude Conversation ──
-
-def _build_claude_messages(conv: dict[str, Any], script: dict[str, Any]) -> list[dict[str, str]]:
-    """Build Claude messages from conversation history."""
-    messages = []
-    for msg in conv["messages"]:
-        role = "user" if msg["role"] == "lead" else "assistant"
-        messages.append({"role": role, "content": msg["content"]})
-    return messages
-
-
-def _extract_qualification_json(text: str) -> dict[str, Any] | None:
-    """Extract JSON qualification block from Claude response."""
-    import re
-    match = re.search(r"```json\s*(\{.*?\})\s*```", text, re.DOTALL)
-    if match:
-        try:
-            data = json.loads(match.group(1))
-            return data.get("qualification", data)
-        except json.JSONDecodeError:
-            pass
-    return None
-
-
-def _strip_qualification_json(text: str) -> str:
-    """Remove the JSON block from the response text the lead sees."""
-    import re
-    return re.sub(r"\s*```json\s*\{.*?\}\s*```\s*", "", text, flags=re.DOTALL).strip()
-
-
-def _check_escalation_triggers(text: str, triggers: list[str]) -> bool:
-    """Check if lead message contains any escalation trigger phrases."""
-    lower = text.lower()
-    return any(t.lower() in lower for t in triggers)
-
-
-def generate_reply(lead_id: str) -> dict[str, Any]:
-    """Generate AI reply for a lead conversation using Claude.
-
-    Returns: {"reply": str, "qualification": dict|None, "needs_escalation": bool, "ready_to_schedule": bool}
-    """
-    conv = get_conversation(lead_id)
-    if not conv:
-        return {"error": "conversation not found"}
-
-    script = get_active_script()
-
-    # Check escalation triggers on last lead message
-    last_lead_msg = ""
-    for msg in reversed(conv["messages"]):
-        if msg["role"] == "lead":
-            last_lead_msg = msg["content"]
-            break
-
-    if _check_escalation_triggers(last_lead_msg, script.get("escalation_triggers", [])):
-        return {
-            "reply": "Entendi! Vou transferir voce para o Daniel. Ele vai entrar em contato em breve. 😊",
-            "qualification": None,
-            "needs_escalation": True,
-            "ready_to_schedule": False,
-        }
-
-    if not anthropic or not ANTHROPIC_API_KEY:
-        return {"error": "Anthropic SDK not available or ANTHROPIC_API_KEY not set"}
-
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    messages = _build_claude_messages(conv, script)
-
-    try:
-        response = client.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=500,
-            system=script["system_prompt"],
-            messages=messages,
-        )
-        full_reply = response.content[0].text
-
-        # Extract qualification data
-        qual_data = _extract_qualification_json(full_reply)
-        clean_reply = _strip_qualification_json(full_reply)
-
-        needs_escalation = False
-        ready_to_schedule = False
-        if qual_data:
-            needs_escalation = qual_data.get("needs_escalation", False)
-            ready_to_schedule = qual_data.get("ready_to_schedule", False)
-            update_qualification(lead_id, {
-                k: v for k, v in qual_data.items()
-                if k in ("profile_fit", "urgency", "budget", "product_route", "pain_points")
-            })
-
-        return {
-            "reply": clean_reply,
-            "qualification": qual_data,
-            "needs_escalation": needs_escalation,
-            "ready_to_schedule": ready_to_schedule,
-        }
-    except Exception as exc:
-        return {"error": f"Claude API error: {exc}"}
-
-
-def get_first_message(lead_id: str) -> str:
-    """Generate the first outreach message for a lead."""
-    conv = get_conversation(lead_id)
-    if not conv:
-        return ""
-    script = get_active_script()
-    template = script.get("first_message_template", "Oi {name}!")
-    return template.format(
-        name=conv.get("name", ""),
-        phone=conv.get("phone", ""),
-        source=conv.get("source", ""),
-    )
-
-
 # ── Funnel Metrics ──
 
 def get_funnel_metrics() -> dict[str, Any]:
-    """Calculate SDR funnel metrics from conversation data."""
     convs = _load_conversations()
     total = len(convs)
     states: dict[str, int] = {}
