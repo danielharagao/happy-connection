@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -4906,6 +4907,32 @@ def api_albert_session_schedule():
 import sdr_engine
 
 
+def _sdr_expected_api_key() -> str:
+    return str(os.environ.get("OPENCLAW_SDR_API_KEY") or "").strip()
+
+
+def _extract_bearer_token() -> str:
+    auth = str(request.headers.get("Authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip()
+    return ""
+
+
+@app.before_request
+def _require_sdr_api_key() -> None:
+    path = request.path or ""
+    if not path.startswith("/api/sdr/"):
+        return
+
+    expected = _sdr_expected_api_key()
+    if not expected:
+        return jsonify({"error": "sdr api key is not configured"}), 503
+
+    provided = _extract_bearer_token()
+    if not provided or not hmac.compare_digest(provided, expected):
+        return jsonify({"error": "unauthorized"}), 401
+
+
 @app.post("/api/sdr/conversations")
 def api_sdr_conversation_create():
     """Create a new SDR conversation record (called by the SDR agent)."""
@@ -4953,7 +4980,19 @@ def api_sdr_conversation_update_qualification(lead_id: str):
 
 @app.get("/api/sdr/scripts")
 def api_sdr_scripts_list():
-    return jsonify({"scripts": sdr_engine.get_scripts()})
+    scripts = sdr_engine.get_scripts()
+    spin = next((s for s in scripts if s.get("id") == "spin-qualification"), None)
+    return jsonify({"script": spin or (scripts[0] if scripts else None), "scripts": scripts})
+
+
+@app.get("/api/sdr/script")
+def api_sdr_script_bundle_get():
+    scripts = sdr_engine.get_scripts()
+    spin = next((s for s in scripts if s.get("id") == "spin-qualification"), None)
+    return jsonify({
+        "script": spin,
+        "persona": sdr_engine.get_persona(),
+    })
 
 
 @app.get("/api/sdr/scripts/<script_id>")

@@ -25,6 +25,8 @@ else:
 
 CONVERSATIONS_FILE = DATA_DIR / "sdr_conversations.json"
 SCRIPTS_FILE = DATA_DIR / "sdr_scripts.json"
+PERSONA_FILE = BASE_DIR / "docs" / "crm" / "persona-dream-outcome.md"
+SPIN_PLAYBOOK_FILE = BASE_DIR / "docs" / "crm" / "mentoria-spin-playbook.md"
 
 # ── Conversation State ──
 
@@ -175,13 +177,65 @@ DEFAULT_SCRIPT = {
 }
 
 
+def _read_text_file(path: Path) -> str:
+    try:
+        return path.read_text("utf-8").strip()
+    except FileNotFoundError:
+        return ""
+
+
+def _build_spin_script() -> dict[str, Any]:
+    spin_playbook = _read_text_file(SPIN_PLAYBOOK_FILE)
+    prompt = (
+        "Use SPIN Selling (Situacao, Problema, Implicacao, Necessidade de Solucao) "
+        "para qualificar leads de mentoria em Business Analysis.\n"
+        "Conduza a conversa com uma pergunta por vez e com tom consultivo."
+    )
+    if spin_playbook:
+        prompt = prompt + "\n\nPlaybook SPIN:\n" + spin_playbook
+
+    return {
+        "id": "spin-qualification",
+        "name": "Script SPIN",
+        "type": "qualification",
+        "product": "mentoring",
+        "system_prompt": prompt,
+        "first_message_template": (
+            "Oi {name}! Pra eu te ajudar da forma mais certeira, "
+            "posso te fazer algumas perguntas rapidas no formato SPIN?"
+        ),
+        "qualification_criteria": {
+            "situation": "Contexto atual do lead (cargo, escopo, momento)",
+            "problem": "Dores e bloqueios principais",
+            "implication": "Impactos de manter o problema como esta",
+            "need_payoff": "Resultado desejado e valor percebido da solucao",
+            "product_route": "mentoring",
+        },
+        "escalation_triggers": [
+            "quero falar com humano",
+            "quero falar com o daniel",
+            "atendente humano",
+        ],
+        "active": True,
+    }
+
+
 def _load_scripts() -> list[dict[str, Any]]:
     try:
         data = json.loads(SCRIPTS_FILE.read_text("utf-8"))
-        return data.get("scripts", [])
+        scripts = data.get("scripts", [])
     except (FileNotFoundError, json.JSONDecodeError):
-        _save_scripts([DEFAULT_SCRIPT])
-        return [DEFAULT_SCRIPT]
+        scripts = [DEFAULT_SCRIPT]
+
+    # Ensure SPIN script exists and is returned as the primary script.
+    has_spin = any(s.get("id") == "spin-qualification" for s in scripts)
+    if not has_spin:
+        scripts = [_build_spin_script(), *scripts]
+    else:
+        scripts = sorted(scripts, key=lambda s: 0 if s.get("id") == "spin-qualification" else 1)
+
+    _save_scripts(scripts)
+    return scripts
 
 
 def _save_scripts(scripts: list[dict[str, Any]]) -> None:
@@ -202,10 +256,23 @@ def get_script(script_id: str) -> dict[str, Any] | None:
 
 def get_active_script() -> dict[str, Any]:
     for s in _load_scripts():
+        if s.get("id") == "spin-qualification":
+            return s
+    for s in _load_scripts():
         if s.get("active"):
             return s
     scripts = _load_scripts()
     return scripts[0] if scripts else DEFAULT_SCRIPT
+
+
+def get_persona() -> dict[str, Any]:
+    persona_text = _read_text_file(PERSONA_FILE)
+    return {
+        "id": "ba-pro-ideal-customer",
+        "name": "Persona BA Pro",
+        "source": str(PERSONA_FILE),
+        "content": persona_text,
+    }
 
 
 def create_script(data: dict[str, Any]) -> dict[str, Any]:
