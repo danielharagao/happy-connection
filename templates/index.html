@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRM Danhausch</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="nav-rail" aria-label="Primary navigation rail">
+      <div class="brand-block">
+        <div>
+          <h1>Danhausch</h1>
+        </div>
+        <button type="button" id="nav-toggle-btn" class="icon-btn nav-toggle-btn" title="Comprimir menu" aria-label="Comprimir menu">◀</button>
+      </div>
+
+      <nav class="tabs" aria-label="Primary navigation tabs">
+        <button type="button" class="tab active" data-target="crm" aria-selected="true"><span class="tab-icon">🧲</span><span>Leads</span></button>
+        <button type="button" class="tab" data-target="agenda" aria-selected="false"><span class="tab-icon">🗓️</span><span>Agenda</span></button>
+        <button type="button" class="tab" data-target="knowledge" aria-selected="false"><span class="tab-icon">📚</span><span>Mission KB</span></button>
+        <button type="button" class="tab" data-target="fluxo" aria-selected="false"><span class="tab-icon">🔁</span><span>Fluxo</span></button>
+      </nav>
+
+      <div class="rail-footer">
+        <p class="help">Painel de leads.</p>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <main>
+        <section class="card tab-panel" id="panel-crm" data-panel="crm">
+          <div class="crm-header-row">
+            <h2 id="crm-title-count">Leads (0)</h2>
+            <span id="crm-conn-dot" class="crm-conn-dot offline" title="Offline" aria-label="Status de conexão"></span>
+          </div>
+          <div class="grid">
+            <div id="crm-status" class="status full"></div>
+            <div class="full crm-actions">
+              <div id="crm-is-ba-quick-filter" class="crm-is-ba-quick-filter" role="group" aria-label="Filtro rápido de BA">
+                <span class="muted">BA:</span>
+                <button type="button" class="crm-tag-chip active" data-action="crm-is-ba-filter" data-value="all">Todos</button>
+                <button type="button" class="crm-tag-chip" data-action="crm-is-ba-filter" data-value="ba">Já é BA</button>
+                <button type="button" class="crm-tag-chip" data-action="crm-is-ba-filter" data-value="nao-ba">Não é BA</button>
+              </div>
+              <div class="crm-search-wrap" data-testid="crm-leads-search-wrap">
+                <input type="search" id="crm-leads-search" data-testid="crm-leads-search-input" class="crm-search-input" placeholder="Buscar por nome ou telefone/WhatsApp" aria-label="Buscar leads por nome ou telefone" autocomplete="off" />
+                <button type="button" id="crm-leads-search-clear" class="icon-btn crm-search-clear" aria-label="Limpar busca" title="Limpar busca">✕</button>
+              </div>
+              <span id="crm-selection-count" class="muted">0 selecionados</span>
+              <button type="button" id="crm-delete-selected-btn" class="quick-action danger" disabled>Excluir selecionado(s)</button>
+              <button type="button" id="crm-merge-selected-btn" class="quick-action" disabled>Merge (2)</button>
+            </div>
+          </div>
+          <div class="crm-layout" data-testid="crm-layout">
+            <div class="crm-board-shell" id="crm-board-shell" data-testid="crm-board-shell">
+              <div id="crm-board-columns" class="crm-board-columns" data-testid="crm-board-columns"></div>
+            </div>
+            <aside class="crm-lead-tray" id="crm-lead-tray" data-testid="crm-lead-tray" aria-live="polite">
+              <div class="crm-lead-tray-header">
+                <h3>Lead Details</h3>
+                <div class="crm-tray-actions">
+                  <button type="button" id="crm-edit-lead-btn" class="icon-btn" title="Editar lead" aria-label="Editar lead">✏️</button>
+                  <button type="button" id="crm-save-lead-btn" class="icon-btn is-hidden" title="Salvar" aria-label="Salvar">💾</button>
+                  <button type="button" id="crm-cancel-edit-btn" class="icon-btn is-hidden" title="Cancelar" aria-label="Cancelar">✖</button>
+                </div>
+              </div>
+              <div class="crm-lead-tray-tabs" role="tablist" aria-label="Lead tray views">
+                <button type="button" class="crm-tray-tab active" data-tray-tab="details" aria-selected="true">Detalhes</button>
+                <button type="button" class="crm-tray-tab" data-tray-tab="operational" aria-selected="false">Operacional</button>
+                <button type="button" class="crm-tray-tab" data-tray-tab="notes" aria-selected="false">Observações</button>
+              </div>
+              <div id="crm-lead-tray-body" class="crm-lead-tray-body">
+                <p class="muted">Clique em um lead para ver os detalhes nesta tray.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-chat" data-panel="chat" data-testid="chat-panel">
+          <div class="chat-shell" data-testid="chat-shell">
+            <aside class="chat-conversations" data-testid="chat-conversations">
+              <div class="chat-col-header">
+                <h3>Conversas</h3>
+                <div class="chat-col-actions">
+                  <span id="chat-conn-dot" class="crm-conn-dot offline" title="Offline" aria-label="Status de conexão do chat"></span>
+                  <button type="button" id="chat-refresh-btn" class="quick-action">Atualizar</button>
+                </div>
+              </div>
+              <div id="chat-status" class="status"></div>
+              <div id="chat-conversations-list" class="chat-conversations-list"></div>
+            </aside>
+            <section class="chat-thread" data-testid="chat-thread">
+              <div class="chat-thread-header">
+                <div>
+                  <h3 id="chat-thread-title">Selecione uma conversa</h3>
+                  <p id="chat-thread-lead" class="muted">Sem lead vinculado</p>
+                </div>
+                <div class="chat-thread-actions">
+                  <button type="button" id="chat-link-lead-btn" class="quick-action">Criar/Vincular lead</button>
+                </div>
+              </div>
+              <div id="chat-messages" class="chat-messages" data-testid="chat-messages"></div>
+              <form id="chat-composer" class="chat-composer-wa" data-testid="chat-composer">
+                <div class="chat-snippets" data-testid="chat-snippets">
+                  <div id="chat-snippet-groups" class="chat-snippet-groups"></div>
+                  <div id="chat-snippet-items" class="chat-snippet-items"></div>
+                </div>
+                <textarea id="chat-input" rows="3" placeholder="Digite uma mensagem..."></textarea>
+                <button type="submit" id="chat-send-btn" class="quick-action">Enviar</button>
+              </form>
+            </section>
+            <aside class="crm-lead-tray chat-lead-tray" id="chat-lead-tray" data-testid="chat-lead-tray" aria-live="polite">
+              <div class="crm-lead-tray-header">
+                <h3>Lead Details</h3>
+                <div class="crm-tray-actions">
+                  <button type="button" id="chat-edit-lead-btn" class="icon-btn" title="Editar lead" aria-label="Editar lead">✏️</button>
+                  <button type="button" id="chat-save-lead-btn" class="icon-btn is-hidden" title="Salvar" aria-label="Salvar">💾</button>
+                  <button type="button" id="chat-cancel-edit-btn" class="icon-btn is-hidden" title="Cancelar" aria-label="Cancelar">✖</button>
+                </div>
+              </div>
+              <div class="crm-lead-tray-tabs" id="chat-lead-tray-tabs" role="tablist" aria-label="Lead tray views no chat">
+                <button type="button" class="crm-tray-tab active" data-chat-tray-tab="details" aria-selected="true">Detalhes</button>
+                <button type="button" class="crm-tray-tab" data-chat-tray-tab="operational" aria-selected="false">Operacional</button>
+                <button type="button" class="crm-tray-tab" data-chat-tray-tab="notes" aria-selected="false">Observações</button>
+              </div>
+              <div id="chat-lead-tray-body" class="crm-lead-tray-body">
+                <p class="muted">Selecione uma conversa para ver detalhes do lead vinculado.</p>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-agenda" data-panel="agenda" data-testid="agenda-panel">
+          <div class="agenda-shell" data-testid="agenda-shell">
+            <aside class="agenda-left" data-testid="agenda-left">
+              <div class="agenda-month-nav">
+                <button type="button" id="agenda-prev-month" class="quick-action" aria-label="Mês anterior">◀</button>
+                <h3 id="agenda-month-label">Agenda</h3>
+                <button type="button" id="agenda-next-month" class="quick-action" aria-label="Próximo mês">▶</button>
+              </div>
+              <div id="agenda-mini-calendar" class="agenda-mini-calendar" data-testid="agenda-mini-calendar"></div>
+              <button type="button" id="agenda-today-btn" class="quick-action">Ir para hoje</button>
+            </aside>
+            <section class="agenda-right" data-testid="agenda-right">
+              <div class="agenda-header-row">
+                <h3 id="agenda-selected-date">Compromissos</h3>
+                <button type="button" id="agenda-add-btn" class="quick-action">+ Novo compromisso</button>
+              </div>
+              <div id="agenda-status" class="status"></div>
+              <div id="agenda-list" class="agenda-list" data-testid="agenda-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-albert" data-panel="albert" data-testid="albert-panel">
+          <div class="albert-shell" data-testid="albert-shell">
+            <header class="albert-header">
+              <div>
+                <h2>Albert • Reuniões Meet</h2>
+                <p class="muted">Cole o link da reunião, entre e grave sem sair do CRM.</p>
+              </div>
+            </header>
+            <div id="albert-status" class="status"></div>
+            <div class="albert-form-grid">
+              <label class="albert-field-full">
+                Link do Meet
+                <input type="url" id="albert-meet-link" placeholder="https://meet.google.com/abc-defg-hij" />
+              </label>
+              <label>
+                Agendar entrada (opcional)
+                <input type="datetime-local" id="albert-schedule-datetime" />
+              </label>
+              <div class="albert-actions">
+                <button type="button" id="albert-start-btn" class="quick-action">Entrar e Gravar Agora</button>
+                <button type="button" id="albert-schedule-btn" class="quick-action">Agendar Entrada</button>
+              </div>
+            </div>
+
+            <section class="albert-live-status" id="albert-live-status"></section>
+            <section>
+              <h3>Sessões recentes</h3>
+              <div id="albert-sessions-list" class="albert-sessions-list"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-knowledge" data-panel="knowledge" data-testid="knowledge-panel">
+          <div class="knowledge-shell" data-testid="knowledge-shell">
+            <header class="knowledge-header">
+              <div>
+                <h2>Mission-Control KB</h2>
+                <p class="muted">Base operacional do CRM (playbooks, memória e notas técnicas).</p>
+              </div>
+              <div class="knowledge-actions">
+                <button type="button" id="knowledge-refresh-btn" class="quick-action">Atualizar</button>
+                <button type="button" id="knowledge-new-btn" class="quick-action">Novo arquivo</button>
+                <button type="button" id="knowledge-delete-btn" class="quick-action">Deletar arquivo</button>
+                <button type="button" id="knowledge-undo-btn" class="quick-action">Undo</button>
+                <button type="button" id="knowledge-save-btn" class="quick-action">Salvar agora</button>
+              </div>
+            </header>
+            <div id="knowledge-status" class="status"></div>
+            <div id="knowledge-list" class="crm-tags-chips"></div>
+            <article id="knowledge-page" class="knowledge-page" data-testid="knowledge-page" contenteditable="true" spellcheck="true">
+              Selecione um documento para visualizar.
+            </article>
+          </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-fluxo" data-panel="fluxo" data-testid="fluxo-panel">
+          <div class="fluxo-shell" data-testid="fluxo-shell">
+            <header class="fluxo-header">
+              <div>
+                <h2>Cadências CRM</h2>
+                <p class="muted">Fluxo v3: lista de cadências + detalhes da cadência (dry-run, sem disparo real).</p>
+              </div>
+            </header>
+            <div id="fluxo-status" class="status"></div>
+
+            <section id="cadencias-list-screen" class="cadencias-screen" data-testid="cadencias-list-screen">
+              <div class="fluxo-actions">
+                <button type="button" id="cadencia-new-btn" class="quick-action">+ Nova cadência</button>
+              </div>
+              <div id="cadencias-list" class="fluxo-list"></div>
+            </section>
+
+            <section id="cadencias-detail-screen" class="cadencias-screen is-hidden" data-testid="cadencias-detail-screen">
+              <div class="fluxo-actions">
+                <button type="button" id="cadencia-back-btn" class="quick-action">← Voltar para lista</button>
+                <button type="button" id="cadencia-save-btn" class="quick-action">Salvar cadência</button>
+              </div>
+
+              <section class="fluxo-settings" aria-label="Detalhes da cadência">
+                <label>
+                  Nome
+                  <input type="text" id="cadencia-name" placeholder="Ex.: Reativação 7 dias" />
+                </label>
+                <label class="fluxo-toggle">
+                  <input type="checkbox" id="fluxo-toggle-active" />
+                  <span>Cadência ativa</span>
+                </label>
+                <label class="fluxo-toggle">
+                  <input type="checkbox" id="fluxo-toggle-stop-on-reply" />
+                  <span>Parar quando o lead responder</span>
+                </label>
+              </section>
+
+              <section class="fluxo-settings" aria-label="Audiência da cadência" data-testid="cadencia-audience-section">
+                <h3>Audiência (regra E / AND)</h3>
+                <div class="fluxo-step-grid">
+                  <label>
+                    Lead em status
+                    <select id="cadencia-audience-status" data-testid="cadencia-audience-status"><option value="">Selecione…</option></select>
+                  </label>
+                  <label>
+                    Lead com Label
+                    <select id="cadencia-audience-label" data-testid="cadencia-audience-label"><option value="">Selecione…</option></select>
+                  </label>
+                  <label>
+                    Lead com Origem
+                    <select id="cadencia-audience-origin" data-testid="cadencia-audience-origin"><option value="">Selecione…</option></select>
+                  </label>
+                </div>
+                <p class="muted">Se preencher mais de um campo, a combinação será por E (AND).</p>
+              </section>
+
+              <div id="fluxo-test-mode" class="status warning">Modo dry-run/local: disparo real ainda não implementado.</div>
+              <div id="cadencia-validation" class="status error"></div>
+
+              <div class="fluxo-list" id="fluxo-steps-list" data-testid="cadencia-messages-list"></div>
+              <div class="fluxo-actions">
+                <button type="button" id="fluxo-add-step-btn" class="quick-action">+ Adicionar mensagem</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <div id="crm-merge-modal" class="crm-modal is-hidden" aria-hidden="true">
+    <div class="crm-modal-backdrop" data-action="close-merge-modal"></div>
+    <div class="crm-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="crm-merge-title">
+      <div class="crm-modal-header">
+        <h3 id="crm-merge-title">Resolver conflito de merge</h3>
+        <button type="button" class="icon-btn" data-action="close-merge-modal" aria-label="Fechar">✖</button>
+      </div>
+      <div id="crm-merge-body" class="crm-modal-body"></div>
+      <div class="crm-modal-actions">
+        <button type="button" id="crm-merge-cancel-btn" class="quick-action" data-action="close-merge-modal">Cancelar</button>
+        <button type="button" id="crm-merge-confirm-btn" class="quick-action">Confirmar merge</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="agenda-create-modal" class="crm-modal is-hidden" aria-hidden="true">
+    <div class="crm-modal-backdrop" data-action="close-agenda-modal"></div>
+    <div class="crm-modal-dialog agenda-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="agenda-create-title">
+      <div class="crm-modal-header">
+        <h3 id="agenda-create-title">Novo compromisso</h3>
+        <button type="button" class="icon-btn" data-action="close-agenda-modal" aria-label="Fechar">✖</button>
+      </div>
+      <form id="agenda-create-form" class="agenda-create-form" data-testid="agenda-create-form" novalidate>
+        <div id="agenda-create-feedback" class="status" aria-live="polite"></div>
+        <div class="agenda-form-grid">
+          <label>
+            Data
+            <input type="date" id="agenda-form-date" name="date" required />
+          </label>
+          <label>
+            Hora
+            <input type="time" id="agenda-form-time" name="time" required />
+          </label>
+          <label>
+            Tipo
+            <select id="agenda-form-type" name="type" required>
+              <option value="call">call</option>
+              <option value="follow-up">follow-up</option>
+              <option value="reunião">reunião</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="agenda-form-status" name="status" required>
+              <option value="pendente">pendente</option>
+              <option value="concluido">concluído</option>
+              <option value="atrasado">atrasado</option>
+            </select>
+          </label>
+          <label class="agenda-field-full">
+            Lead
+            <select id="agenda-form-lead" name="lead" required></select>
+          </label>
+          <label class="agenda-field-full">
+            Observação (opcional)
+            <textarea id="agenda-form-note" name="note" rows="3" maxlength="280" placeholder="Ex.: confirmar escopo da reunião"></textarea>
+          </label>
+        </div>
+        <div class="crm-modal-actions">
+          <button type="button" id="agenda-form-cancel-btn" class="quick-action" data-action="close-agenda-modal">Cancelar</button>
+          <button type="submit" id="agenda-form-submit-btn" class="quick-action">Salvar compromisso</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="/static/vendor/phaser.min.js"></script>
+  <script src="/static/app.js?v=20260323fluxov2"></script>
+</body>
+</html>
