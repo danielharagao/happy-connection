@@ -2764,7 +2764,8 @@ async function loadChatMessages(conversationId) {
 
     // Ignore stale responses from older requests or a different selected thread.
     if (requestSeq !== chatState.messagesRequestSeq) return;
-    if (String(chatState.selectedConversationId || '') !== cid) return;
+    const currentSelected = String(chatState.selectedConversationId || '').trim();
+    if (currentSelected !== cid && currentSelected !== normalizedConversationId) return;
 
     chatState.messagesByConversation[normalizedConversationId] = Array.isArray(out?.items) ? out.items : [];
     if (normalizedConversationId !== cid) {
@@ -2806,8 +2807,9 @@ async function sendChatMessage(evt) {
     if (sendSeq !== chatState.sendRequestSeq) return;
     if (String(chatState.selectedConversationId || '') !== selectedAtClick) return;
 
-    await loadChatMessages(selectedAtClick);
-    await loadChatConversations({ keepSelection: true });
+    setStatus('chat-status', 'Atualizando conversa...');
+    await loadChatMessages(selectedAtClick).catch(() => {});
+    await loadChatConversations({ keepSelection: true }).catch(() => {});
     setStatus('chat-status', '');
   } catch (err) {
     setStatus('chat-status', err.message || 'Falha ao enviar mensagem.', true);
