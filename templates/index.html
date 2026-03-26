@@ -80,7 +80,7 @@
           </div>
         </section>
 
-        <section class="card tab-panel is-hidden" id="panel-chat" data-panel="chat" data-testid="chat-panel">
+        <section class="card tab-panel is-hidden" id="panel-chat" data-panel="chat" data-testid="chat-panel" aria-label="Chat WhatsApp">
           <div class="chat-shell" data-testid="chat-shell">
             <aside class="chat-conversations" data-testid="chat-conversations">
               <div class="chat-col-header">
@@ -103,7 +103,7 @@
                   <button type="button" id="chat-link-lead-btn" class="quick-action">Criar/Vincular lead</button>
                 </div>
               </div>
-              <div id="chat-messages" class="chat-messages" data-testid="chat-messages"></div>
+              <div id="chat-messages" class="chat-messages" data-testid="chat-messages" role="log" aria-live="polite" aria-label="Mensagens da conversa"></div>
               <form id="chat-composer" class="chat-composer-wa" data-testid="chat-composer">
                 <div class="chat-snippets" data-testid="chat-snippets">
                   <div id="chat-snippet-groups" class="chat-snippet-groups"></div>

@@ -4533,10 +4533,12 @@ def api_chat_messages(conversation_id: str):
 
         merged: list[dict[str, Any]] = []
         seen: set[str] = set()
+        fetch_errors: list[str] = []
         for alias in aliases:
             try:
                 alias_items = _chat_fetch_messages_from_baileys(alias, limit=500)
-            except Exception:
+            except Exception as alias_exc:
+                fetch_errors.append(f"{alias}: {alias_exc}")
                 continue
             for m in alias_items:
                 txt = str(m.get("text") or "").strip()
@@ -4560,9 +4562,12 @@ def api_chat_messages(conversation_id: str):
                 if str(msg.get("text") or "").strip():
                     _chat_sync_interaction_once(lead_id, msg, canon)
 
-        return jsonify({"ok": True, "conversationId": canon, "items": merged[-500:]})
+        resp = {"ok": True, "conversationId": canon, "items": merged[-500:]}
+        if fetch_errors:
+            resp["warnings"] = fetch_errors
+        return jsonify(resp)
     except Exception as exc:
-        return jsonify({"error": f"chat thread unavailable: {exc}"}), 503
+        return jsonify({"error": "chat thread unavailable"}), 503
 
 
 @app.post("/api/chat/send")
@@ -4597,8 +4602,8 @@ def api_chat_send():
 
         post_action = _chat_apply_post_send_stage_transition(target, payload)
         return jsonify({"ok": True, "conversationId": target, "sent": sent, "postAction": post_action})
-    except Exception as exc:
-        return jsonify({"error": f"failed to send message: {exc}"}), 503
+    except Exception:
+        return jsonify({"error": "failed to send message"}), 503
 
 
 @app.post("/api/chat/link-lead")
