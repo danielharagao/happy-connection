@@ -5020,6 +5020,109 @@ def api_sdr_conversation_state(lead_id: str):
     return jsonify({"success": True, "state": state})
 
 
+# ── SDR CRM Data Access (proxied from /api/crm/bridge, under Bearer token auth) ──
+# These endpoints let the SDR agent access CRM data without nginx basic auth.
+
+@app.get("/api/sdr/leads")
+def api_sdr_leads():
+    """List all leads from CRM — for SDR agent to find new leads."""
+    leads, total, error = _fetch_crm_overview()
+    if error:
+        return jsonify({"error": error}), 502
+    return jsonify({"items": leads, "total": total if total is not None else len(leads)})
+
+
+@app.get("/api/sdr/leads/<int:lead_id>/notes")
+def api_sdr_lead_notes(lead_id: int):
+    """Get notes for a lead."""
+    items = _load_crm_lead_notes()
+    lead_notes = [n for n in items if n.get("leadId") == lead_id]
+    return jsonify({"items": lead_notes})
+
+
+@app.post("/api/sdr/leads/<int:lead_id>/notes")
+def api_sdr_lead_notes_create(lead_id: int):
+    """Add a note to a lead."""
+    payload = request.get_json(silent=True) or {}
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        return jsonify({"error": "text is required"}), 400
+    items = _load_crm_lead_notes()
+    note = {
+        "id": str(uuid.uuid4()),
+        "leadId": lead_id,
+        "text": text,
+        "createdAt": _utc_now_iso(),
+        "source": "sdr-agent",
+    }
+    items.append(note)
+    _save_crm_lead_notes(items)
+    return jsonify({"data": note}), 201
+
+
+@app.get("/api/sdr/leads/<int:lead_id>/operational")
+def api_sdr_lead_operational(lead_id: int):
+    """Get operational data for a lead."""
+    status_map = _load_crm_lead_status_map()
+    entry = status_map.get(str(lead_id), {})
+    return jsonify({"data": entry})
+
+
+@app.post("/api/sdr/leads/<int:lead_id>/operational")
+def api_sdr_lead_operational_update(lead_id: int):
+    """Update operational data for a lead (qualification info)."""
+    payload = request.get_json(silent=True) or {}
+    status_map = _load_crm_lead_status_map()
+    key = str(lead_id)
+    if key not in status_map:
+        status_map[key] = {}
+    status_map[key].update(payload)
+    status_map[key]["updatedAt"] = _utc_now_iso()
+    _save_crm_lead_status_map(status_map)
+    return jsonify({"data": status_map[key]})
+
+
+@app.get("/api/sdr/agenda")
+def api_sdr_agenda():
+    """Get agenda events — for SDR agent to check scheduled calls."""
+    try:
+        events = json.loads((DATA_DIR / "agenda_events.json").read_text("utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        events = []
+    date = request.args.get("date")
+    if date:
+        events = [e for e in events if (e.get("date") or e.get("datetime", ""))[:10] == date]
+    return jsonify({"items": events})
+
+
+@app.post("/api/sdr/agenda")
+def api_sdr_agenda_create():
+    """Create an agenda event — for SDR agent to schedule calls."""
+    payload = request.get_json(silent=True) or {}
+    title = payload.get("title", "")
+    dt = payload.get("datetime") or payload.get("date") or _utc_now_iso()
+    if not title:
+        return jsonify({"error": "title is required"}), 400
+    try:
+        events = json.loads((DATA_DIR / "agenda_events.json").read_text("utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        events = []
+    event = {
+        "id": str(uuid.uuid4()),
+        "title": title,
+        "datetime": dt,
+        "date": dt[:10] if len(dt) >= 10 else dt,
+        "type": payload.get("type", "sdr_call"),
+        "notes": payload.get("notes", ""),
+        "lead_id": payload.get("lead_id"),
+        "product": payload.get("product"),
+        "createdAt": _utc_now_iso(),
+    }
+    events.append(event)
+    (DATA_DIR / "agenda_events.json").write_text(json.dumps(events, indent=2, ensure_ascii=False), "utf-8")
+    return jsonify({"data": event}), 201
+
+
 if __name__ == "__main__":
     host = os.environ.get("OPENCLAW_COCKPIT_HOST", "127.0.0.1").strip() or "127.0.0.1"
     try:
