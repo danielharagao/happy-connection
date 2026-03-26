@@ -4897,6 +4897,129 @@ def api_albert_session_schedule():
     return jsonify({"ok": True, "item": item}), 201
 
 
+# ═══════════════════════════════════════════════════════════════════
+# SDR — Data Layer (conversations, scripts, metrics)
+# AI conversation logic runs on the local Genie SDR agent, not here.
+# This CRM serves as the data layer that the agent consumes via API.
+# ═══════════════════════════════════════════════════════════════════
+
+import sdr_engine
+
+
+@app.post("/api/sdr/conversations")
+def api_sdr_conversation_create():
+    """Create a new SDR conversation record (called by the SDR agent)."""
+    payload = request.get_json(silent=True) or {}
+    lead_id = payload.get("lead_id") or payload.get("leadId")
+    name = payload.get("name", "")
+    phone = payload.get("phone", "")
+    source = payload.get("source", "")
+    form_data = payload.get("form_data") or payload.get("formData") or {}
+
+    if not lead_id:
+        return jsonify({"error": "lead_id is required"}), 400
+
+    conv = sdr_engine.create_conversation(str(lead_id), name, phone, source, form_data)
+    return jsonify({"success": True, "conversation": conv}), 201
+
+
+@app.post("/api/sdr/conversations/<lead_id>/message")
+def api_sdr_conversation_add_message(lead_id: str):
+    """Add a message to a conversation (called by the SDR agent to log messages)."""
+    payload = request.get_json(silent=True) or {}
+    role = payload.get("role", "")
+    content = str(payload.get("content") or payload.get("text") or "").strip()
+
+    if not role or not content:
+        return jsonify({"error": "role and content are required"}), 400
+
+    conv = sdr_engine.add_message(lead_id, role, content)
+    if not conv:
+        return jsonify({"error": "conversation not found"}), 404
+    return jsonify({"success": True, "state": conv["state"]})
+
+
+@app.post("/api/sdr/conversations/<lead_id>/qualification")
+def api_sdr_conversation_update_qualification(lead_id: str):
+    """Update qualification data for a conversation (called by the SDR agent)."""
+    payload = request.get_json(silent=True) or {}
+    conv = sdr_engine.update_qualification(lead_id, payload)
+    if not conv:
+        return jsonify({"error": "conversation not found"}), 404
+    return jsonify({"success": True, "qualification": conv["qualification"]})
+
+
+# ── SDR Scripts CRUD ──
+
+@app.get("/api/sdr/scripts")
+def api_sdr_scripts_list():
+    return jsonify({"scripts": sdr_engine.get_scripts()})
+
+
+@app.get("/api/sdr/scripts/<script_id>")
+def api_sdr_scripts_get(script_id: str):
+    script = sdr_engine.get_script(script_id)
+    if not script:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(script)
+
+
+@app.post("/api/sdr/scripts")
+def api_sdr_scripts_create():
+    payload = request.get_json(silent=True) or {}
+    script = sdr_engine.create_script(payload)
+    return jsonify({"script": script}), 201
+
+
+@app.put("/api/sdr/scripts/<script_id>")
+def api_sdr_scripts_update(script_id: str):
+    payload = request.get_json(silent=True) or {}
+    script = sdr_engine.update_script(script_id, payload)
+    if not script:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"script": script})
+
+
+@app.delete("/api/sdr/scripts/<script_id>")
+def api_sdr_scripts_delete(script_id: str):
+    if sdr_engine.delete_script(script_id):
+        return jsonify({"success": True})
+    return jsonify({"error": "not found"}), 404
+
+
+# ── SDR Conversations & Dashboard ──
+
+@app.get("/api/sdr/conversations")
+def api_sdr_conversations_list():
+    convs = sdr_engine.list_conversations()
+    items = sorted(convs.values(), key=lambda c: c.get("updated_at", ""), reverse=True)
+    return jsonify({"items": items, "total": len(items)})
+
+
+@app.get("/api/sdr/conversations/<lead_id>")
+def api_sdr_conversations_get(lead_id: str):
+    conv = sdr_engine.get_conversation(lead_id)
+    if not conv:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(conv)
+
+
+@app.get("/api/sdr/dashboard")
+def api_sdr_dashboard():
+    metrics = sdr_engine.get_funnel_metrics()
+    return jsonify(metrics)
+
+
+@app.post("/api/sdr/conversations/<lead_id>/state")
+def api_sdr_conversation_state(lead_id: str):
+    payload = request.get_json(silent=True) or {}
+    state = payload.get("state", "")
+    conv = sdr_engine.update_state(lead_id, state)
+    if not conv:
+        return jsonify({"error": "invalid state or conversation not found"}), 400
+    return jsonify({"success": True, "state": state})
+
+
 if __name__ == "__main__":
     host = os.environ.get("OPENCLAW_COCKPIT_HOST", "127.0.0.1").strip() or "127.0.0.1"
     try:
