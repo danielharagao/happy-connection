@@ -21,6 +21,8 @@
         <button type="button" class="tab" data-target="agenda" aria-selected="false"><span class="tab-icon">🗓️</span><span>Agenda</span></button>
         <button type="button" class="tab" data-target="knowledge" aria-selected="false"><span class="tab-icon">📚</span><span>Mission KB</span></button>
         <button type="button" class="tab" data-target="fluxo" aria-selected="false"><span class="tab-icon">🔁</span><span>Fluxo</span></button>
+        <button type="button" class="tab" data-target="sdr" aria-selected="false"><span class="tab-icon">🤖</span><span>SDR</span></button>
+        <button type="button" class="tab" data-target="sdr-scripts" aria-selected="false"><span class="tab-icon">📝</span><span>Scripts</span></button>
       </nav>
 
       <div class="rail-footer">
@@ -276,6 +278,64 @@
             </section>
           </div>
         </section>
+
+        <!-- SDR Dashboard -->
+        <section class="card tab-panel is-hidden" id="panel-sdr" data-panel="sdr" data-testid="sdr-panel">
+          <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div>
+              <h2>SDR Dashboard</h2>
+              <p class="muted">Funil de qualificacao automatica via WhatsApp</p>
+            </div>
+            <button type="button" class="quick-action" onclick="loadSDRDashboard()">Atualizar</button>
+          </header>
+          <div id="sdr-funnel" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:24px"></div>
+          <h3 style="margin-bottom:12px">Conversas Ativas</h3>
+          <div id="sdr-conversations" style="overflow-x:auto"></div>
+        </section>
+
+        <!-- SDR Scripts Editor -->
+        <section class="card tab-panel is-hidden" id="panel-sdr-scripts" data-panel="sdr-scripts" data-testid="sdr-scripts-panel">
+          <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div>
+              <h2>SDR Scripts</h2>
+              <p class="muted">Scripts de qualificacao editaveis em tempo real</p>
+            </div>
+            <button type="button" class="quick-action" id="sdr-new-script-btn" onclick="sdrNewScript()">+ Novo Script</button>
+          </header>
+          <div id="sdr-scripts-list"></div>
+          <div id="sdr-script-editor" class="is-hidden" style="margin-top:16px">
+            <input type="hidden" id="sdr-script-id" />
+            <label style="display:block;margin-bottom:8px">
+              Nome
+              <input type="text" id="sdr-script-name" style="width:100%;padding:6px 10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px" />
+            </label>
+            <label style="display:block;margin-bottom:8px">
+              Produto
+              <select id="sdr-script-product" style="padding:6px 10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px">
+                <option value="both">Ambos</option>
+                <option value="course">Curso</option>
+                <option value="mentoring">Mentoria</option>
+              </select>
+            </label>
+            <label style="display:block;margin-bottom:8px">
+              System Prompt
+              <textarea id="sdr-script-prompt" rows="10" style="width:100%;padding:10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px;font-family:monospace;font-size:12px"></textarea>
+            </label>
+            <label style="display:block;margin-bottom:8px">
+              Primeira Mensagem (use {name} para nome do lead)
+              <textarea id="sdr-script-first-msg" rows="3" style="width:100%;padding:10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px;font-size:13px"></textarea>
+            </label>
+            <label style="display:block;margin-bottom:8px">
+              Gatilhos de Escalacao (um por linha)
+              <textarea id="sdr-script-triggers" rows="3" style="width:100%;padding:10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px;font-size:13px"></textarea>
+            </label>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <button type="button" class="quick-action" onclick="sdrSaveScript()">Salvar</button>
+              <button type="button" class="quick-action" style="background:transparent;border:1px solid #333" onclick="sdrCancelEdit()">Cancelar</button>
+            </div>
+          </div>
+        </section>
+
       </main>
     </div>
   </div>

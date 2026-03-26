@@ -4897,6 +4897,231 @@ def api_albert_session_schedule():
     return jsonify({"ok": True, "item": item}), 201
 
 
+# ═══════════════════════════════════════════════════════════════════
+# SDR — AI Sales Development Representative
+# ═══════════════════════════════════════════════════════════════════
+
+import sdr_engine
+
+
+@app.post("/api/sdr/webhook")
+def api_sdr_webhook():
+    """Webhook for new leads — triggers AI SDR qualification flow."""
+    payload = request.get_json(silent=True) or {}
+    lead_id = payload.get("lead_id") or payload.get("leadId")
+    name = payload.get("name", "")
+    phone = payload.get("phone", "")
+    source = payload.get("source", "")
+    form_data = payload.get("form_data") or payload.get("formData") or {}
+
+    if not lead_id or not phone:
+        return jsonify({"error": "lead_id and phone are required"}), 400
+
+    # Normalize phone to WhatsApp JID
+    chat_id = _chat_id_from_target(phone)
+    if not chat_id:
+        return jsonify({"error": "invalid phone number"}), 400
+
+    # Start conversation
+    conv = sdr_engine.start_conversation(str(lead_id), name, phone, source, form_data)
+
+    # Generate and send first message
+    first_msg = sdr_engine.get_first_message(str(lead_id))
+    if first_msg:
+        try:
+            _baileys_request("/send", method="POST", payload={"chatId": chat_id, "text": first_msg}, timeout=_baileys_timeout_seconds(8.5))
+            sdr_engine.add_message(str(lead_id), "assistant", first_msg)
+        except Exception as exc:
+            return jsonify({"error": f"failed to send WhatsApp: {exc}", "conversation": conv}), 503
+
+    return jsonify({"success": True, "conversation_id": conv["id"], "lead_id": lead_id, "first_message_sent": bool(first_msg)})
+
+
+@app.post("/api/sdr/reply")
+def api_sdr_reply():
+    """Handle incoming WhatsApp reply from a lead in SDR conversation."""
+    payload = request.get_json(silent=True) or {}
+    lead_id = payload.get("lead_id") or payload.get("leadId")
+    message = str(payload.get("message") or payload.get("text") or "").strip()
+
+    if not lead_id or not message:
+        return jsonify({"error": "lead_id and message are required"}), 400
+
+    conv = sdr_engine.get_conversation(str(lead_id))
+    if not conv:
+        return jsonify({"error": "no active conversation for this lead"}), 404
+
+    if conv["state"] not in ("new", "qualifying"):
+        return jsonify({"error": f"conversation is in state '{conv['state']}', not accepting messages"}), 400
+
+    # Add lead message
+    sdr_engine.add_message(str(lead_id), "lead", message)
+
+    # Generate AI reply
+    result = sdr_engine.generate_reply(str(lead_id))
+
+    if result.get("error"):
+        return jsonify({"error": result["error"]}), 500
+
+    reply_text = result.get("reply", "")
+
+    # Handle escalation
+    if result.get("needs_escalation"):
+        sdr_engine.update_state(str(lead_id), "escalated")
+        # Send escalation message to lead
+        chat_id = _chat_id_from_target(conv["phone"])
+        if chat_id and reply_text:
+            try:
+                _baileys_request("/send", method="POST", payload={"chatId": chat_id, "text": reply_text}, timeout=_baileys_timeout_seconds(8.5))
+            except Exception:
+                pass
+        sdr_engine.add_message(str(lead_id), "assistant", reply_text)
+        return jsonify({"success": True, "reply": reply_text, "escalated": True, "state": "escalated"})
+
+    # Handle ready to schedule
+    if result.get("ready_to_schedule"):
+        sdr_engine.update_state(str(lead_id), "qualified")
+
+    # Send reply via WhatsApp
+    if reply_text:
+        chat_id = _chat_id_from_target(conv["phone"])
+        if chat_id:
+            try:
+                _baileys_request("/send", method="POST", payload={"chatId": chat_id, "text": reply_text}, timeout=_baileys_timeout_seconds(8.5))
+            except Exception as exc:
+                return jsonify({"error": f"failed to send reply: {exc}"}), 503
+        sdr_engine.add_message(str(lead_id), "assistant", reply_text)
+
+    return jsonify({
+        "success": True,
+        "reply": reply_text,
+        "qualification": result.get("qualification"),
+        "ready_to_schedule": result.get("ready_to_schedule", False),
+        "state": sdr_engine.get_conversation(str(lead_id), )["state"],
+    })
+
+
+@app.post("/api/sdr/schedule")
+def api_sdr_schedule():
+    """Schedule a call for a qualified lead via the agenda system."""
+    payload = request.get_json(silent=True) or {}
+    lead_id = payload.get("lead_id") or payload.get("leadId")
+    scheduled_datetime = payload.get("datetime") or payload.get("scheduled_at")
+
+    if not lead_id:
+        return jsonify({"error": "lead_id is required"}), 400
+
+    conv = sdr_engine.get_conversation(str(lead_id))
+    if not conv:
+        return jsonify({"error": "no conversation for this lead"}), 404
+
+    # Create agenda event
+    event_data = {
+        "title": f"Ligacao SDR — {conv.get('name', 'Lead')}",
+        "datetime": scheduled_datetime or datetime.now(timezone.utc).isoformat(),
+        "type": "sdr_call",
+        "lead_id": lead_id,
+        "product": (conv.get("qualification") or {}).get("product_route", "unclear"),
+        "notes": json.dumps(conv.get("qualification", {}), ensure_ascii=False),
+    }
+
+    # Write qualification summary to lead notes
+    qual = conv.get("qualification", {})
+    summary = (
+        f"[SDR AI] Qualificacao automatica:\n"
+        f"Produto: {qual.get('product_route', 'indefinido')}\n"
+        f"Perfil: {qual.get('profile_fit', 'indefinido')}\n"
+        f"Urgencia: {qual.get('urgency', 'indefinido')}\n"
+        f"Orcamento: {qual.get('budget', 'indefinido')}\n"
+        f"Dores: {', '.join(qual.get('pain_points', []))}\n"
+    )
+
+    sdr_engine.update_state(str(lead_id), "scheduled")
+
+    # Send confirmation to lead
+    chat_id = _chat_id_from_target(conv["phone"])
+    if chat_id:
+        try:
+            confirm_msg = f"Perfeito! Sua ligacao foi agendada. O Daniel vai entrar em contato com voce. Ate la! 😊"
+            _baileys_request("/send", method="POST", payload={"chatId": chat_id, "text": confirm_msg}, timeout=_baileys_timeout_seconds(8.5))
+            sdr_engine.add_message(str(lead_id), "assistant", confirm_msg)
+        except Exception:
+            pass
+
+    return jsonify({"success": True, "event": event_data, "summary": summary, "state": "scheduled"})
+
+
+# ── SDR Scripts CRUD ──
+
+@app.get("/api/sdr/scripts")
+def api_sdr_scripts_list():
+    return jsonify({"scripts": sdr_engine.get_scripts()})
+
+
+@app.get("/api/sdr/scripts/<script_id>")
+def api_sdr_scripts_get(script_id: str):
+    script = sdr_engine.get_script(script_id)
+    if not script:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(script)
+
+
+@app.post("/api/sdr/scripts")
+def api_sdr_scripts_create():
+    payload = request.get_json(silent=True) or {}
+    script = sdr_engine.create_script(payload)
+    return jsonify({"script": script}), 201
+
+
+@app.put("/api/sdr/scripts/<script_id>")
+def api_sdr_scripts_update(script_id: str):
+    payload = request.get_json(silent=True) or {}
+    script = sdr_engine.update_script(script_id, payload)
+    if not script:
+        return jsonify({"error": "not found"}), 404
+    return jsonify({"script": script})
+
+
+@app.delete("/api/sdr/scripts/<script_id>")
+def api_sdr_scripts_delete(script_id: str):
+    if sdr_engine.delete_script(script_id):
+        return jsonify({"success": True})
+    return jsonify({"error": "not found"}), 404
+
+
+# ── SDR Conversations & Dashboard ──
+
+@app.get("/api/sdr/conversations")
+def api_sdr_conversations_list():
+    convs = sdr_engine.list_conversations()
+    items = sorted(convs.values(), key=lambda c: c.get("updated_at", ""), reverse=True)
+    return jsonify({"items": items, "total": len(items)})
+
+
+@app.get("/api/sdr/conversations/<lead_id>")
+def api_sdr_conversations_get(lead_id: str):
+    conv = sdr_engine.get_conversation(lead_id)
+    if not conv:
+        return jsonify({"error": "not found"}), 404
+    return jsonify(conv)
+
+
+@app.get("/api/sdr/dashboard")
+def api_sdr_dashboard():
+    metrics = sdr_engine.get_funnel_metrics()
+    return jsonify(metrics)
+
+
+@app.post("/api/sdr/conversations/<lead_id>/state")
+def api_sdr_conversation_state(lead_id: str):
+    payload = request.get_json(silent=True) or {}
+    state = payload.get("state", "")
+    conv = sdr_engine.update_state(lead_id, state)
+    if not conv:
+        return jsonify({"error": "invalid state or conversation not found"}), 400
+    return jsonify({"success": True, "state": state})
+
+
 if __name__ == "__main__":
     host = os.environ.get("OPENCLAW_COCKPIT_HOST", "127.0.0.1").strip() or "127.0.0.1"
     try:

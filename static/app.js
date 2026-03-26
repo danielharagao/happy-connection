@@ -57,6 +57,8 @@ function activateTab(tabKey) {
   if (tabKey === 'knowledge') loadKnowledge(knowledgeState.selectedId).catch(() => {});
   if (tabKey === 'albert') loadAlbertSessions().catch(() => {});
   if (tabKey === 'fluxo') loadFluxo().catch(() => {});
+  if (tabKey === 'sdr') loadSDRDashboard().catch(() => {});
+  if (tabKey === 'sdr-scripts') loadSDRScripts().catch(() => {});
 }
 
 function initTabs() {
@@ -3070,3 +3072,182 @@ setInterval(() => {
 setInterval(() => {
   loadAlbertSessions().catch(() => {});
 }, 5000);
+
+// ═══════════════════════════════════════════════════════════════
+// SDR — AI Sales Development Representative
+// ═══════════════════════════════════════════════════════════════
+
+async function loadSDRDashboard() {
+  try {
+    const [metrics, convRes] = await Promise.all([
+      api('/api/sdr/dashboard'),
+      api('/api/sdr/conversations'),
+    ]);
+
+    const funnelEl = document.getElementById('sdr-funnel');
+    const convsEl = document.getElementById('sdr-conversations');
+
+    const states = metrics.by_state || {};
+    const funnelStages = [
+      { label: 'Total Leads', value: metrics.total_leads || 0, color: '#7c3aed' },
+      { label: 'Qualificando', value: states.qualifying || 0, color: '#eab308' },
+      { label: 'Qualificados', value: states.qualified || 0, color: '#22c55e' },
+      { label: 'Agendados', value: states.scheduled || 0, color: '#3b82f6' },
+      { label: 'Nurture', value: states.nurture || 0, color: '#6b7280' },
+      { label: 'Escalados', value: states.escalated || 0, color: '#ef4444' },
+      { label: 'Sem Resposta', value: states.no_response || 0, color: '#6b7280' },
+    ];
+
+    funnelEl.innerHTML = funnelStages.map(s =>
+      `<div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:16px 20px;min-width:120px;text-align:center">
+        <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">${s.label}</div>
+        <div style="font-size:28px;font-weight:700;color:${s.color}">${s.value}</div>
+      </div>`
+    ).join('') +
+    `<div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:16px 20px;min-width:120px;text-align:center">
+      <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Conversao</div>
+      <div style="font-size:28px;font-weight:700;color:#22c55e">${metrics.conversion_rate || 0}%</div>
+    </div>`;
+
+    const items = convRes.items || [];
+    if (!items.length) {
+      convsEl.innerHTML = '<p style="color:#888;padding:20px;text-align:center">Nenhuma conversa SDR ainda.</p>';
+      return;
+    }
+
+    convsEl.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr style="border-bottom:1px solid #333">
+        <th style="text-align:left;padding:8px;color:#888;font-size:11px;text-transform:uppercase">Lead</th>
+        <th style="text-align:left;padding:8px;color:#888;font-size:11px;text-transform:uppercase">Telefone</th>
+        <th style="text-align:left;padding:8px;color:#888;font-size:11px;text-transform:uppercase">Estado</th>
+        <th style="text-align:left;padding:8px;color:#888;font-size:11px;text-transform:uppercase">Produto</th>
+        <th style="text-align:left;padding:8px;color:#888;font-size:11px;text-transform:uppercase">Msgs</th>
+        <th style="text-align:left;padding:8px;color:#888;font-size:11px;text-transform:uppercase">Atualizado</th>
+      </tr></thead>
+      <tbody>${items.map(c => {
+        const qual = c.qualification || {};
+        const stateColors = { qualifying: '#eab308', qualified: '#22c55e', scheduled: '#3b82f6', escalated: '#ef4444', nurture: '#6b7280', no_response: '#6b7280', new: '#7c3aed' };
+        const color = stateColors[c.state] || '#888';
+        const product = qual.product_route || '-';
+        const updated = c.updated_at ? new Date(c.updated_at).toLocaleString('pt-BR') : '-';
+        return `<tr style="border-bottom:1px solid #222">
+          <td style="padding:8px"><strong>${escapeHtml(c.name || c.lead_id)}</strong></td>
+          <td style="padding:8px;color:#888;font-size:12px">${escapeHtml(c.phone || '')}</td>
+          <td style="padding:8px"><span style="color:${color};font-weight:600;font-size:12px">${escapeHtml(c.state)}</span></td>
+          <td style="padding:8px;font-size:12px">${escapeHtml(product)}</td>
+          <td style="padding:8px;font-size:12px">${(c.messages || []).length}</td>
+          <td style="padding:8px;color:#888;font-size:11px">${updated}</td>
+        </tr>`;
+      }).join('')}</tbody>
+    </table>`;
+  } catch (err) {
+    document.getElementById('sdr-funnel').innerHTML = `<p style="color:#ef4444">Erro: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+// ── SDR Scripts ──
+
+let _sdrEditingId = null;
+
+async function loadSDRScripts() {
+  try {
+    const data = await api('/api/sdr/scripts');
+    const scripts = data.scripts || [];
+    const listEl = document.getElementById('sdr-scripts-list');
+
+    if (!scripts.length) {
+      listEl.innerHTML = '<p style="color:#888;padding:20px;text-align:center">Nenhum script criado.</p>';
+      return;
+    }
+
+    listEl.innerHTML = scripts.map(s =>
+      `<div style="background:#1a1a1a;border:1px solid #333;border-radius:10px;padding:16px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <strong>${escapeHtml(s.name)}</strong>
+          <span style="margin-left:8px;font-size:11px;padding:2px 8px;border-radius:10px;background:${s.active ? 'rgba(34,197,94,.15)' : 'rgba(107,114,128,.15)'};color:${s.active ? '#22c55e' : '#888'}">${s.active ? 'ativo' : 'inativo'}</span>
+          <span style="margin-left:8px;font-size:11px;color:#888">${escapeHtml(s.product || 'both')}</span>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="quick-action" style="font-size:12px;padding:4px 10px" onclick="sdrEditScript('${escapeHtml(s.id)}')">Editar</button>
+          <button class="quick-action" style="font-size:12px;padding:4px 10px;background:transparent;border:1px solid #333;color:#888" onclick="sdrToggleScript('${escapeHtml(s.id)}', ${!s.active})">${s.active ? 'Desativar' : 'Ativar'}</button>
+          <button class="quick-action" style="font-size:12px;padding:4px 10px;background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)" onclick="sdrDeleteScript('${escapeHtml(s.id)}')">Excluir</button>
+        </div>
+      </div>`
+    ).join('');
+  } catch (err) {
+    document.getElementById('sdr-scripts-list').innerHTML = `<p style="color:#ef4444">Erro: ${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function sdrEditScript(scriptId) {
+  try {
+    const s = await api(`/api/sdr/scripts/${scriptId}`);
+    _sdrEditingId = scriptId;
+    document.getElementById('sdr-script-id').value = scriptId;
+    document.getElementById('sdr-script-name').value = s.name || '';
+    document.getElementById('sdr-script-product').value = s.product || 'both';
+    document.getElementById('sdr-script-prompt').value = s.system_prompt || '';
+    document.getElementById('sdr-script-first-msg').value = s.first_message_template || '';
+    document.getElementById('sdr-script-triggers').value = (s.escalation_triggers || []).join('\n');
+    document.getElementById('sdr-script-editor').classList.remove('is-hidden');
+  } catch (err) {
+    alert('Erro ao carregar script: ' + err.message);
+  }
+}
+
+function sdrNewScript() {
+  _sdrEditingId = null;
+  document.getElementById('sdr-script-id').value = '';
+  document.getElementById('sdr-script-name').value = '';
+  document.getElementById('sdr-script-product').value = 'both';
+  document.getElementById('sdr-script-prompt').value = '';
+  document.getElementById('sdr-script-first-msg').value = '';
+  document.getElementById('sdr-script-triggers').value = '';
+  document.getElementById('sdr-script-editor').classList.remove('is-hidden');
+}
+
+function sdrCancelEdit() {
+  _sdrEditingId = null;
+  document.getElementById('sdr-script-editor').classList.add('is-hidden');
+}
+
+async function sdrSaveScript() {
+  const payload = {
+    name: document.getElementById('sdr-script-name').value,
+    product: document.getElementById('sdr-script-product').value,
+    system_prompt: document.getElementById('sdr-script-prompt').value,
+    first_message_template: document.getElementById('sdr-script-first-msg').value,
+    escalation_triggers: document.getElementById('sdr-script-triggers').value.split('\n').map(s => s.trim()).filter(Boolean),
+  };
+
+  try {
+    if (_sdrEditingId) {
+      await api(`/api/sdr/scripts/${_sdrEditingId}`, { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      await api('/api/sdr/scripts', { method: 'POST', body: JSON.stringify(payload) });
+    }
+    sdrCancelEdit();
+    await loadSDRScripts();
+  } catch (err) {
+    alert('Erro ao salvar: ' + err.message);
+  }
+}
+
+async function sdrToggleScript(scriptId, active) {
+  try {
+    await api(`/api/sdr/scripts/${scriptId}`, { method: 'PUT', body: JSON.stringify({ active }) });
+    await loadSDRScripts();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
+
+async function sdrDeleteScript(scriptId) {
+  if (!confirm('Excluir este script?')) return;
+  try {
+    await api(`/api/sdr/scripts/${scriptId}`, { method: 'DELETE' });
+    await loadSDRScripts();
+  } catch (err) {
+    alert('Erro: ' + err.message);
+  }
+}
