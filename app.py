@@ -10,6 +10,7 @@ import subprocess
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -4923,6 +4924,114 @@ def _extract_bearer_token() -> str:
     return ""
 
 
+_BRIDGE_NONCE_TTL_SECONDS = 300
+_bridge_seen_nonces: deque[tuple[float, str]] = deque()
+_bridge_seen_lookup: set[str] = set()
+_bridge_lock = threading.Lock()
+
+
+def _bridge_expected_api_key() -> str:
+    return str(os.environ.get("OPENCLAW_BRIDGE_API_KEY") or "").strip()
+
+
+def _bridge_hmac_secret() -> str:
+    return str(os.environ.get("OPENCLAW_BRIDGE_HMAC_SECRET") or "").strip()
+
+
+def _bridge_cleanup_nonces(now: float) -> None:
+    while _bridge_seen_nonces and (now - _bridge_seen_nonces[0][0]) > _BRIDGE_NONCE_TTL_SECONDS:
+        _, nonce = _bridge_seen_nonces.popleft()
+        _bridge_seen_lookup.discard(nonce)
+
+
+def _bridge_register_nonce(nonce: str) -> bool:
+    now = time.time()
+    with _bridge_lock:
+        _bridge_cleanup_nonces(now)
+        if nonce in _bridge_seen_lookup:
+            return False
+        _bridge_seen_lookup.add(nonce)
+        _bridge_seen_nonces.append((now, nonce))
+        return True
+
+
+def _resolve_alfred_session_id() -> str:
+    return str(os.environ.get("OPENCLAW_BRIDGE_SESSION_ID") or "bridge-local").strip() or "bridge-local"
+
+
+def _invoke_alfred_sync(message_text: str, timeout_ms: int) -> tuple[str, str]:
+    session_id = _resolve_alfred_session_id()
+
+    timeout_s = max(5, min(int(timeout_ms / 1000), 45))
+    cmd = [
+        "openclaw",
+        "--no-color",
+        "agent",
+        "--local",
+        "--session-id",
+        session_id,
+        "--message",
+        message_text,
+        "--json",
+    ]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        return "", "timeout"
+
+    if proc.returncode != 0:
+        return "", "agent_error"
+
+    stdout = str(proc.stdout or "").strip()
+    if not stdout:
+        return "", "empty_response"
+
+    parsed = None
+    try:
+        parsed = json.loads(stdout)
+    except json.JSONDecodeError:
+        for line in reversed(stdout.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                parsed = json.loads(line)
+                break
+            except json.JSONDecodeError:
+                continue
+
+    if not isinstance(parsed, dict):
+        return "", "invalid_response"
+
+    answer = ""
+    payloads = parsed.get("payloads")
+    if isinstance(payloads, list) and payloads:
+        first = payloads[0] or {}
+        if isinstance(first, dict):
+            answer = str(first.get("text") or "").strip()
+
+    if not answer:
+        answer = str(
+            parsed.get("response")
+            or parsed.get("reply")
+            or parsed.get("text")
+            or ""
+        ).strip()
+    if not answer:
+        answer = stdout
+
+    return answer, ""
+
+
+def _bridge_signature(request_id: str, nonce: str, timestamp: str, agent_id: str, session_key: str, answer: str) -> str:
+    secret = _bridge_hmac_secret()
+    if not secret:
+        return ""
+    canonical = "\n".join([request_id, nonce, timestamp, agent_id, session_key, answer])
+    return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
 @app.before_request
 def _require_sdr_api_key() -> None:
     path = request.path or ""
@@ -4979,6 +5088,63 @@ def api_sdr_conversation_update_qualification(lead_id: str):
     if not conv:
         return jsonify({"error": "conversation not found"}), 404
     return jsonify({"success": True, "qualification": conv["qualification"]})
+
+
+@app.post("/api/alfred/ask-sync")
+def api_alfred_ask_sync():
+    expected = _bridge_expected_api_key()
+    if not expected:
+        return jsonify({"ok": False, "error": "bridge api key is not configured"}), 503
+
+    provided = _extract_bearer_token()
+    if not provided or not hmac.compare_digest(provided, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    message_text = str(payload.get("message") or "").strip()
+    security = payload.get("security") or {}
+    nonce = str(security.get("nonce") or payload.get("nonce") or "").strip()
+    req_ts = str(security.get("timestamp") or payload.get("timestamp") or "").strip()
+    timeout_ms = int((payload.get("options") or {}).get("timeout_ms") or 25000)
+
+    if not message_text:
+        return jsonify({"ok": False, "error": "message is required"}), 400
+    if not nonce:
+        return jsonify({"ok": False, "error": "invalid_nonce"}), 400
+    if not req_ts:
+        return jsonify({"ok": False, "error": "invalid_timestamp"}), 400
+
+    try:
+        ts_obj = datetime.fromisoformat(req_ts.replace("Z", "+00:00"))
+        if abs((datetime.now(timezone.utc) - ts_obj).total_seconds()) > 60:
+            return jsonify({"ok": False, "error": "timestamp_out_of_window"}), 400
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_timestamp"}), 400
+
+    if not _bridge_register_nonce(nonce):
+        return jsonify({"ok": False, "error": "replay_detected"}), 409
+
+    answer, err = _invoke_alfred_sync(message_text, timeout_ms=timeout_ms)
+    if err == "timeout":
+        return jsonify({"ok": False, "error": "timeout"}), 504
+    if err:
+        return jsonify({"ok": False, "error": err}), 503
+
+    agent_id = "main"
+    session_key = _resolve_alfred_session_id()
+    response_ts = datetime.now(timezone.utc).isoformat()
+    request_id = str(request.headers.get("X-Request-Id") or f"req-{uuid.uuid4().hex[:12]}")
+    signature = _bridge_signature(request_id, nonce, response_ts, agent_id, session_key, answer)
+
+    return jsonify({
+        "ok": True,
+        "target": {"agent_id": agent_id, "session_key": session_key},
+        "request_id": request_id,
+        "nonce": nonce,
+        "timestamp": response_ts,
+        "answer": answer,
+        "signature": signature,
+    })
 
 
 # ── SDR Scripts CRUD ──
