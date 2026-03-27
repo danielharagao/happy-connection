@@ -50,6 +50,7 @@ CHAT_LOG_INDEX_FILE = DATA_DIR / "chat_log_index.json"
 CHAT_CONVERSATIONS_CACHE_FILE = DATA_DIR / "chat_conversations_cache.json"
 AGENDA_EVENTS_FILE = DATA_DIR / "agenda_events.json"
 ALBERT_SESSIONS_FILE = DATA_DIR / "albert_sessions.json"
+ALFRED_BRIDGE_JOBS_FILE = DATA_DIR / "alfred_bridge_jobs.json"
 MAX_JOBS = 200
 MAX_KANBAN_TASKS = 2000
 KANBAN_STATUSES = [
@@ -5032,6 +5033,131 @@ def _bridge_signature(request_id: str, nonce: str, timestamp: str, agent_id: str
     return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+_bridge_jobs_lock = threading.Lock()
+_bridge_worker_lock = threading.Lock()
+_bridge_worker_running = False
+
+
+def _bridge_jobs_load() -> dict[str, Any]:
+    try:
+        data = json.loads(ALFRED_BRIDGE_JOBS_FILE.read_text("utf-8"))
+        if isinstance(data, dict):
+            jobs = data.get("jobs")
+            if isinstance(jobs, dict):
+                return jobs
+        return {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _bridge_jobs_save(jobs: dict[str, Any]) -> None:
+    ALFRED_BRIDGE_JOBS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    ALFRED_BRIDGE_JOBS_FILE.write_text(json.dumps({"jobs": jobs}, ensure_ascii=False, indent=2), "utf-8")
+
+
+def _bridge_enqueue_async_job(message_text: str, nonce: str, req_ts: str, timeout_ms: int, request_id: str, client_id: str) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    job_id = f"job-{uuid.uuid4().hex[:16]}"
+    item = {
+        "id": job_id,
+        "status": "queued",
+        "createdAt": now,
+        "updatedAt": now,
+        "requestId": request_id,
+        "clientId": client_id,
+        "nonce": nonce,
+        "requestTimestamp": req_ts,
+        "message": message_text,
+        "timeoutMs": timeout_ms,
+        "target": {"agent_id": "main", "session_key": _resolve_alfred_session_id()},
+        "answer": "",
+        "signature": "",
+        "error": "",
+    }
+    with _bridge_jobs_lock:
+        jobs = _bridge_jobs_load()
+        jobs[job_id] = item
+        _bridge_jobs_save(jobs)
+    return item
+
+
+def _bridge_get_job(job_id: str) -> dict[str, Any] | None:
+    with _bridge_jobs_lock:
+        jobs = _bridge_jobs_load()
+        item = jobs.get(job_id)
+        return item if isinstance(item, dict) else None
+
+
+def _bridge_pick_next_job_id() -> str:
+    with _bridge_jobs_lock:
+        jobs = _bridge_jobs_load()
+        queued = [j for j in jobs.values() if isinstance(j, dict) and j.get("status") == "queued"]
+        if not queued:
+            return ""
+        queued.sort(key=lambda j: str(j.get("createdAt") or ""))
+        job = queued[0]
+        job_id = str(job.get("id") or "")
+        if not job_id:
+            return ""
+        job["status"] = "processing"
+        job["updatedAt"] = datetime.now(timezone.utc).isoformat()
+        jobs[job_id] = job
+        _bridge_jobs_save(jobs)
+        return job_id
+
+
+def _bridge_finish_job(job_id: str, *, status: str, answer: str = "", signature: str = "", error: str = "") -> None:
+    with _bridge_jobs_lock:
+        jobs = _bridge_jobs_load()
+        item = jobs.get(job_id)
+        if not isinstance(item, dict):
+            return
+        item["status"] = status
+        item["updatedAt"] = datetime.now(timezone.utc).isoformat()
+        item["answer"] = answer
+        item["signature"] = signature
+        item["error"] = error
+        jobs[job_id] = item
+        _bridge_jobs_save(jobs)
+
+
+def _bridge_async_worker() -> None:
+    global _bridge_worker_running
+    try:
+        while True:
+            job_id = _bridge_pick_next_job_id()
+            if not job_id:
+                return
+            item = _bridge_get_job(job_id)
+            if not item:
+                continue
+
+            answer, err = _invoke_alfred_sync(str(item.get("message") or ""), int(item.get("timeoutMs") or 25000))
+            if err:
+                _bridge_finish_job(job_id, status="error", error=err)
+                continue
+
+            response_ts = datetime.now(timezone.utc).isoformat()
+            target = item.get("target") or {}
+            agent_id = str(target.get("agent_id") or "main")
+            session_key = str(target.get("session_key") or _resolve_alfred_session_id())
+            signature = _bridge_signature(str(item.get("requestId") or ""), str(item.get("nonce") or ""), response_ts, agent_id, session_key, answer)
+            _bridge_finish_job(job_id, status="done", answer=answer, signature=signature)
+    finally:
+        with _bridge_worker_lock:
+            _bridge_worker_running = False
+
+
+def _bridge_start_async_worker() -> None:
+    global _bridge_worker_running
+    with _bridge_worker_lock:
+        if _bridge_worker_running:
+            return
+        _bridge_worker_running = True
+    t = threading.Thread(target=_bridge_async_worker, name="bridge-async-worker", daemon=True)
+    t.start()
+
+
 @app.before_request
 def _require_sdr_api_key() -> None:
     path = request.path or ""
@@ -5090,8 +5216,65 @@ def api_sdr_conversation_update_qualification(lead_id: str):
     return jsonify({"success": True, "qualification": conv["qualification"]})
 
 
-@app.post("/api/alfred/ask-sync")
-def api_alfred_ask_sync():
+@app.get("/doc")
+def api_alfred_bridge_doc():
+    doc = {
+        "name": "Alfred Bridge API",
+        "version": "1.1",
+        "endpoints": {
+            "sync": "POST /api/alfred/ask-sync",
+            "async_submit": "POST /api/alfred/ask-async",
+            "async_status": "GET /api/alfred/ask-async/<job_id>",
+        },
+        "auth": {
+            "type": "Bearer",
+            "header": "Authorization: Bearer <OPENCLAW_BRIDGE_API_KEY>",
+            "required_header": "X-Request-Id (recommended)",
+        },
+        "request": {
+            "message": "string (required)",
+            "security": {
+                "nonce": "string/uuid (required, unique)",
+                "timestamp": "ISO8601 UTC (required, ±60s)",
+            },
+            "options": {
+                "timeout_ms": "number, default 25000",
+                "require_response": "boolean, default true (sync only)",
+            },
+        },
+        "async_flow": {
+            "submit_status": 202,
+            "submit_fields": ["ok", "job_id", "status", "status_endpoint", "nonce"],
+            "status_values": ["queued", "processing", "done", "error"],
+            "poll_done_fields": ["ok", "job_id", "status", "answer", "signature", "target", "updated_at"],
+        },
+        "signature": {
+            "algorithm": "HMAC-SHA256 hex",
+            "canonical_string": "request_id + \\n + nonce + \\n + timestamp + \\n + agent_id + \\n + session_key + \\n + answer",
+            "secret_env": "OPENCLAW_BRIDGE_HMAC_SECRET",
+        },
+        "errors": {
+            "400": ["message is required", "invalid_nonce", "invalid_timestamp", "timestamp_out_of_window"],
+            "401": ["unauthorized"],
+            "404": ["not_found"],
+            "409": ["replay_detected"],
+            "503": ["bridge api key is not configured", "session_unavailable", "agent_error", "invalid_response"],
+            "504": ["timeout"],
+        },
+        "examples": {
+            "async_submit": {
+                "curl": "curl -X POST https://crm.danhausch.cloud/api/alfred/ask-async -H 'Authorization: Bearer <BRIDGE_API_KEY>' -H 'Content-Type: application/json' -H 'X-Request-Id: req-001' -d '{\"message\":\"Qual o próximo passo?\",\"security\":{\"nonce\":\"<uuid>\",\"timestamp\":\"<ISO8601>\"},\"options\":{\"timeout_ms\":20000}}'"
+            },
+            "async_status": {
+                "curl": "curl -X GET https://crm.danhausch.cloud/api/alfred/ask-async/<job_id> -H 'Authorization: Bearer <BRIDGE_API_KEY>'"
+            }
+        }
+    }
+    return jsonify(doc)
+
+
+@app.post("/api/alfred/ask-async")
+def api_alfred_ask_async():
     expected = _bridge_expected_api_key()
     if not expected:
         return jsonify({"ok": False, "error": "bridge api key is not configured"}), 503
@@ -5105,7 +5288,8 @@ def api_alfred_ask_sync():
     security = payload.get("security") or {}
     nonce = str(security.get("nonce") or payload.get("nonce") or "").strip()
     req_ts = str(security.get("timestamp") or payload.get("timestamp") or "").strip()
-    timeout_ms = int((payload.get("options") or {}).get("timeout_ms") or 25000)
+    options = payload.get("options") or {}
+    timeout_ms = int(options.get("timeout_ms") or 25000)
 
     if not message_text:
         return jsonify({"ok": False, "error": "message is required"}), 400
@@ -5123,6 +5307,96 @@ def api_alfred_ask_sync():
 
     if not _bridge_register_nonce(nonce):
         return jsonify({"ok": False, "error": "replay_detected"}), 409
+
+    request_id = str(request.headers.get("X-Request-Id") or f"req-{uuid.uuid4().hex[:12]}")
+    client_id = str(request.headers.get("X-Client-Id") or "").strip()
+    item = _bridge_enqueue_async_job(message_text, nonce, req_ts, timeout_ms, request_id, client_id)
+    _bridge_start_async_worker()
+
+    return jsonify({
+        "ok": True,
+        "job_id": item.get("id"),
+        "status": item.get("status"),
+        "status_endpoint": f"/api/alfred/ask-async/{item.get('id')}",
+        "nonce": nonce,
+    }), 202
+
+
+@app.get("/api/alfred/ask-async/<job_id>")
+def api_alfred_ask_async_status(job_id: str):
+    expected = _bridge_expected_api_key()
+    if not expected:
+        return jsonify({"ok": False, "error": "bridge api key is not configured"}), 503
+
+    provided = _extract_bearer_token()
+    if not provided or not hmac.compare_digest(provided, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    item = _bridge_get_job(job_id)
+    if not item:
+        return jsonify({"ok": False, "error": "not_found"}), 404
+
+    status = str(item.get("status") or "queued")
+    resp = {
+        "ok": True,
+        "job_id": job_id,
+        "status": status,
+        "request_id": item.get("requestId"),
+        "nonce": item.get("nonce"),
+        "target": item.get("target"),
+        "updated_at": item.get("updatedAt"),
+    }
+    if status == "done":
+        resp["answer"] = item.get("answer")
+        resp["signature"] = item.get("signature")
+    elif status == "error":
+        resp["error"] = item.get("error") or "agent_error"
+    return jsonify(resp)
+
+
+@app.post("/api/alfred/ask-sync")
+def api_alfred_ask_sync():
+    expected = _bridge_expected_api_key()
+    if not expected:
+        return jsonify({"ok": False, "error": "bridge api key is not configured"}), 503
+
+    provided = _extract_bearer_token()
+    if not provided or not hmac.compare_digest(provided, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+    payload = request.get_json(silent=True) or {}
+    message_text = str(payload.get("message") or "").strip()
+    security = payload.get("security") or {}
+    nonce = str(security.get("nonce") or payload.get("nonce") or "").strip()
+    req_ts = str(security.get("timestamp") or payload.get("timestamp") or "").strip()
+    options = payload.get("options") or {}
+    timeout_ms = int(options.get("timeout_ms") or 25000)
+    require_response = bool(options.get("require_response", True))
+
+    if not message_text:
+        return jsonify({"ok": False, "error": "message is required"}), 400
+    if not nonce:
+        return jsonify({"ok": False, "error": "invalid_nonce"}), 400
+    if not req_ts:
+        return jsonify({"ok": False, "error": "invalid_timestamp"}), 400
+
+    try:
+        ts_obj = datetime.fromisoformat(req_ts.replace("Z", "+00:00"))
+        if abs((datetime.now(timezone.utc) - ts_obj).total_seconds()) > 60:
+            return jsonify({"ok": False, "error": "timestamp_out_of_window"}), 400
+    except ValueError:
+        return jsonify({"ok": False, "error": "invalid_timestamp"}), 400
+
+    if not _bridge_register_nonce(nonce):
+        return jsonify({"ok": False, "error": "replay_detected"}), 409
+
+    if not require_response:
+        return jsonify({
+            "ok": True,
+            "skipped": True,
+            "reason": "response_not_required",
+            "nonce": nonce,
+        }), 202
 
     answer, err = _invoke_alfred_sync(message_text, timeout_ms=timeout_ms)
     if err == "timeout":
