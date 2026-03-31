@@ -97,6 +97,14 @@ function initNavToggle() {
   });
 }
 
+function initLogoutButton() {
+  const btn = document.getElementById('logout-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    window.location.href = withAppBase('/logout');
+  });
+}
+
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
@@ -3043,6 +3051,7 @@ try {
 
 initTabs();
 initNavToggle();
+initLogoutButton();
 initFluxoListeners();
 renderFluxo();
 renderChatSnippets();

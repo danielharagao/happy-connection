@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_file, url_for
 from urllib.parse import unquote, urljoin, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -5617,6 +5617,14 @@ def api_sdr_agenda_create():
     events.append(event)
     (DATA_DIR / "agenda_events.json").write_text(json.dumps(events, indent=2, ensure_ascii=False), "utf-8")
     return jsonify({"data": event}), 201
+
+
+@app.get("/logout")
+def logout():
+    """Trigger browser re-auth challenge to effectively log out when using basic auth gateways."""
+    response = make_response("Logged out", 401)
+    response.headers["WWW-Authenticate"] = 'Basic realm="CRM"'
+    return response
 
 
 if __name__ == "__main__":
