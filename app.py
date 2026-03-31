@@ -5175,11 +5175,32 @@ def _require_sdr_api_key() -> None:
 
     # Compatibility path for CRM web UI calls from same-origin browser sessions.
     # The UI does not attach OPENCLAW_SDR_API_KEY in Authorization headers.
-    host = (request.host_url or "").rstrip("/")
+    host_url = (request.host_url or "").rstrip("/")
+    host_header = str(request.headers.get("X-Forwarded-Host") or request.headers.get("Host") or request.host or "").strip().lower()
     origin = str(request.headers.get("Origin") or "").strip()
     referer = str(request.headers.get("Referer") or "").strip()
     user_agent = str(request.headers.get("User-Agent") or "")
-    same_origin = bool((host and origin.startswith(host)) or (host and referer.startswith(host)))
+
+    def _origin_host(value: str) -> str:
+        if not value:
+            return ""
+        try:
+            parsed = urlsplit(value)
+            return (parsed.netloc or "").strip().lower()
+        except Exception:
+            return ""
+
+    origin_host = _origin_host(origin)
+    referer_host = _origin_host(referer)
+    host_url_host = _origin_host(host_url)
+    same_origin = bool(
+        (host_url and origin.startswith(host_url))
+        or (host_url and referer.startswith(host_url))
+        or (host_header and origin_host == host_header)
+        or (host_header and referer_host == host_header)
+        or (host_url_host and origin_host == host_url_host)
+        or (host_url_host and referer_host == host_url_host)
+    )
     if same_origin and "Mozilla" in user_agent:
         return
 
