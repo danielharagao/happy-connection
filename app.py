@@ -5168,9 +5168,22 @@ def _require_sdr_api_key() -> None:
     if not expected:
         return jsonify({"error": "sdr api key is not configured"}), 503
 
+    # Primary auth path for agent/backend integrations
     provided = _extract_bearer_token()
-    if not provided or not hmac.compare_digest(provided, expected):
-        return jsonify({"error": "unauthorized"}), 401
+    if provided and hmac.compare_digest(provided, expected):
+        return
+
+    # Compatibility path for CRM web UI calls from same-origin browser sessions.
+    # The UI does not attach OPENCLAW_SDR_API_KEY in Authorization headers.
+    host = (request.host_url or "").rstrip("/")
+    origin = str(request.headers.get("Origin") or "").strip()
+    referer = str(request.headers.get("Referer") or "").strip()
+    user_agent = str(request.headers.get("User-Agent") or "")
+    same_origin = bool((host and origin.startswith(host)) or (host and referer.startswith(host)))
+    if same_origin and "Mozilla" in user_agent:
+        return
+
+    return jsonify({"error": "unauthorized"}), 401
 
 
 @app.post("/api/sdr/conversations")
