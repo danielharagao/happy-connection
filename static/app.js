@@ -58,7 +58,6 @@ function activateTab(tabKey) {
   if (tabKey === 'albert') loadAlbertSessions().catch(() => {});
   if (tabKey === 'fluxo') loadFluxo().catch(() => {});
   if (tabKey === 'sdr') loadSDRDashboard().catch(() => {});
-  if (tabKey === 'sdr-scripts') loadSDRScripts().catch(() => {});
 }
 
 function initTabs() {
@@ -2062,9 +2061,9 @@ async function onDeleteSelectedClick() {
 }
 
 async function loadCrmBridge() {
-  const data = await api('/api/crm/bridge');
-  const status = data.status || {};
-  const payload = data.payload || {};
+  const data = (await api('/api/crm/bridge').catch(() => ({}))) || {};
+  const status = (data && data.status) || {};
+  const payload = (data && data.payload) || {};
   const leads = Array.isArray(payload.leads) ? payload.leads.map(crmSanitizeLead) : [];
 
   crmState.leads = leads;

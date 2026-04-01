@@ -4915,7 +4915,24 @@ import sdr_engine
 
 
 def _sdr_expected_api_key() -> str:
-    return str(os.environ.get("OPENCLAW_SDR_API_KEY") or "").strip()
+    key = str(os.environ.get("OPENCLAW_SDR_API_KEY") or "").strip()
+    if key:
+        return key
+
+    # Fallback for service restarts that did not import cockpit env vars.
+    env_file = DATA_DIR / "sdr_api_env.sh"
+    try:
+        if env_file.exists():
+            for line in env_file.read_text("utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("OPENCLAW_SDR_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('\"').strip("'")
+    except Exception:
+        pass
+
+    return ""
 
 
 def _extract_bearer_token() -> str:
