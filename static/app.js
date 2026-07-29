@@ -55,6 +55,7 @@ function activateTab(tabKey) {
   window.location.hash = `#${tabKey}`;
   setStatus('nav-status', '');
   if (tabKey === 'knowledge') loadKnowledge(knowledgeState.selectedId).catch(() => {});
+  if (tabKey === 'analytics') loadFunnelAnalytics().catch(() => {});
   if (tabKey === 'albert') loadAlbertSessions().catch(() => {});
   if (tabKey === 'fluxo') loadFluxo().catch(() => {});
   if (tabKey === 'sdr') loadSDRDashboard().catch(() => {});
@@ -107,6 +108,185 @@ function initLogoutButton() {
 function setText(id, value) {
   const el = document.getElementById(id);
   if (el) el.textContent = value;
+}
+
+const analyticsState = {
+  events: [],
+  commercial: {},
+  loaded: false,
+  loading: false,
+};
+
+function analyticsFormatNumber(value) {
+  return new Intl.NumberFormat('pt-BR').format(Number(value || 0));
+}
+
+function analyticsFormatMoney(value) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(value || 0));
+}
+
+function analyticsRateLabel(edge) {
+  if (edge.aggregateOnly) return 'Atribuição pendente';
+  return edge.rate == null ? 'N/D' : `${edge.rate.toLocaleString('pt-BR')}%`;
+}
+
+function renderFunnelMap(model) {
+  const root = document.getElementById('analytics-funnel-map');
+  if (!root) return;
+  const parts = [];
+  model.stages.forEach((stage, index) => {
+    const previousEdge = index > 0 ? model.edges[index - 1] : null;
+    if (previousEdge) {
+      parts.push(`
+        <div class="funnel-connector ${previousEdge.aggregateOnly ? 'aggregate-only' : ''}" aria-label="Conversão ${escapeHtml(analyticsRateLabel(previousEdge))}">
+          <span>${escapeHtml(analyticsRateLabel(previousEdge))}</span>
+          <i aria-hidden="true">→</i>
+        </div>
+      `);
+    }
+    const secondary = stage.id === 'traffic'
+      ? `${analyticsFormatNumber(stage.adAttributedCount)} sessões atribuídas a anúncios`
+      : stage.aggregateOnly
+        ? 'Total comercial agregado'
+        : 'Sessões únicas nesta etapa';
+    const revenue = stage.id === 'purchase' && stage.revenue
+      ? `<small class="funnel-node-revenue">${escapeHtml(analyticsFormatMoney(stage.revenue))} realizados</small>`
+      : '';
+    const bottleneck = previousEdge && previousEdge.rate != null && previousEdge.rate < 30 ? 'bottleneck' : '';
+    parts.push(`
+      <article class="funnel-node ${stage.aggregateOnly ? 'aggregate-only' : ''} ${bottleneck}" data-stage="${escapeHtml(stage.id)}">
+        <span class="funnel-node-index">0${index + 1}</span>
+        <span class="funnel-node-label">${escapeHtml(stage.label)}</span>
+        <strong>${analyticsFormatNumber(stage.count)}</strong>
+        <small>${escapeHtml(secondary)}</small>
+        ${revenue}
+      </article>
+    `);
+  });
+  root.innerHTML = parts.join('');
+}
+
+function renderAnalyticsBreakdown(targetId, rows, labelBuilder, emptyText) {
+  const root = document.getElementById(targetId);
+  if (!root) return;
+  const safeRows = Array.isArray(rows) ? rows.slice(0, 12) : [];
+  const max = Math.max(1, ...safeRows.map((row) => Number(row.count || 0)));
+  if (!safeRows.length) {
+    root.innerHTML = `<p class="analytics-empty">${escapeHtml(emptyText)}</p>`;
+    return;
+  }
+  root.innerHTML = safeRows.map((row) => {
+    const width = Math.max(4, Math.round((Number(row.count || 0) / max) * 100));
+    return `
+      <div class="analytics-breakdown-row">
+        <div><strong>${escapeHtml(labelBuilder(row))}</strong><span>${analyticsFormatNumber(row.count)}</span></div>
+        <div class="analytics-breakdown-bar"><span style="width:${width}%"></span></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderAnalyticsDataQuality(dataQuality) {
+  const root = document.getElementById('analytics-data-quality');
+  if (!root) return;
+  const rate = dataQuality.leadLinkRate == null ? 'N/D' : `${dataQuality.leadLinkRate.toLocaleString('pt-BR')}%`;
+  root.innerHTML = `
+    <span><strong>${analyticsFormatNumber(dataQuality.events)}</strong> eventos analisados</span>
+    <span><strong>${rate}</strong> ligados a leads</span>
+    <span class="${dataQuality.checkoutEvents ? '' : 'warning'}"><strong>${analyticsFormatNumber(dataQuality.checkoutEvents)}</strong> eventos de checkout</span>
+    <span class="warning"><strong>Agregado</strong> compras ainda sem vínculo por sessão</span>
+  `;
+}
+
+function analyticsFilters() {
+  return {
+    from: document.getElementById('analytics-filter-from')?.value || '',
+    to: document.getElementById('analytics-filter-to')?.value || '',
+    source: document.getElementById('analytics-filter-source')?.value || '',
+    campaign: document.getElementById('analytics-filter-campaign')?.value || '',
+    offer: document.getElementById('analytics-filter-offer')?.value || '',
+  };
+}
+
+function populateAnalyticsSelect(id, values) {
+  const select = document.getElementById(id);
+  if (!select) return;
+  const current = select.value;
+  const options = Array.from(new Set(values.map((value) => String(value || '').trim()).filter(Boolean))).sort();
+  select.innerHTML = '<option value="">Todas</option>' + options.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join('');
+  if (options.includes(current)) select.value = current;
+}
+
+function populateAnalyticsFilters(events) {
+  populateAnalyticsSelect('analytics-filter-source', events.map((event) => event.utm_source));
+  populateAnalyticsSelect('analytics-filter-campaign', events.map((event) => event.utm_campaign));
+  populateAnalyticsSelect('analytics-filter-offer', events.map((event) => event.offer));
+}
+
+function applyAnalyticsFilters() {
+  if (!window.FunnelAnalytics) return;
+  const filtered = FunnelAnalytics.filterEvents(analyticsState.events, analyticsFilters());
+  const model = FunnelAnalytics.buildFunnelModel(filtered, analyticsState.commercial);
+  renderFunnelMap(model);
+  renderAnalyticsBreakdown(
+    'analytics-traffic-breakdown',
+    model.traffic,
+    (row) => `${row.source} · ${row.campaign} · ${row.content}`,
+    'Nenhuma sessão atribuída a anúncios neste recorte.',
+  );
+  renderAnalyticsBreakdown(
+    'analytics-pages-breakdown',
+    model.pages,
+    (row) => row.page,
+    'Nenhuma visualização de landing page neste recorte.',
+  );
+  renderAnalyticsDataQuality(model.dataQuality);
+  setText('analytics-attributed-total', `${analyticsFormatNumber(model.stages[0].adAttributedCount)} sessões`);
+  setText('analytics-pages-total', `${analyticsFormatNumber(model.pages.length)} páginas`);
+  setStatus('analytics-status', `${analyticsFormatNumber(filtered.length)} de ${analyticsFormatNumber(analyticsState.events.length)} eventos no recorte atual.`);
+}
+
+async function loadFunnelAnalytics(force = false) {
+  if (analyticsState.loading || (analyticsState.loaded && !force)) {
+    if (analyticsState.loaded) applyAnalyticsFilters();
+    return;
+  }
+  analyticsState.loading = true;
+  setStatus('analytics-status', 'Carregando eventos e resultados comerciais...');
+  try {
+    const [funnel, commercial] = await Promise.all([
+      api('/api/crm/bridge/proxy/api/crm/funnel-events?limit=500'),
+      api('/api/crm/bridge/proxy/api/crm/commercial'),
+    ]);
+    analyticsState.events = Array.isArray(funnel.events) ? funnel.events : [];
+    analyticsState.commercial = commercial || {};
+    analyticsState.loaded = true;
+    populateAnalyticsFilters(analyticsState.events);
+    applyAnalyticsFilters();
+  } catch (err) {
+    setStatus('analytics-status', err?.message || 'Falha ao carregar o mapa de funis.', true);
+  } finally {
+    analyticsState.loading = false;
+  }
+}
+
+function initFunnelAnalytics() {
+  const filterIds = [
+    'analytics-filter-from',
+    'analytics-filter-to',
+    'analytics-filter-source',
+    'analytics-filter-campaign',
+    'analytics-filter-offer',
+  ];
+  filterIds.forEach((id) => document.getElementById(id)?.addEventListener('change', applyAnalyticsFilters));
+  document.getElementById('analytics-refresh-btn')?.addEventListener('click', () => loadFunnelAnalytics(true));
+  document.getElementById('analytics-clear-filters')?.addEventListener('click', () => {
+    filterIds.forEach((id) => {
+      const control = document.getElementById(id);
+      if (control) control.value = '';
+    });
+    applyAnalyticsFilters();
+  });
 }
 
 const knowledgeState = {
@@ -3048,6 +3228,7 @@ try {
   }
 } catch (_) {}
 
+initFunnelAnalytics();
 initTabs();
 initNavToggle();
 initLogoutButton();

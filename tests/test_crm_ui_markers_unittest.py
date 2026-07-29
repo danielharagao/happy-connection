@@ -46,6 +46,43 @@ class CrmUiMarkersTests(unittest.TestCase):
         self.assertIn('cadencia-toggle', js)
         self.assertNotIn('Lead 360', js)
 
+    def test_funnel_analytics_dom_and_hooks_exist(self):
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+        js = (root / "static" / "app.js").read_text(encoding="utf-8")
+        css = (root / "static" / "styles.css").read_text(encoding="utf-8")
+
+        for marker in (
+            'data-target="analytics"',
+            'id="panel-analytics"',
+            'id="analytics-filter-from"',
+            'id="analytics-filter-to"',
+            'id="analytics-filter-source"',
+            'id="analytics-filter-campaign"',
+            'id="analytics-filter-offer"',
+            'id="analytics-funnel-map"',
+            'id="analytics-traffic-breakdown"',
+            'id="analytics-pages-breakdown"',
+            'id="analytics-data-quality"',
+            'Dados próprios do CRM',
+            '<script src="/static/funnel-analytics.js"></script>',
+        ):
+            self.assertIn(marker, html)
+
+        self.assertIn("if (tabKey === 'analytics') loadFunnelAnalytics()", js)
+        self.assertIn("/api/crm/bridge/proxy/api/crm/funnel-events?limit=500", js)
+        self.assertIn("/api/crm/bridge/proxy/api/crm/commercial", js)
+        self.assertIn("FunnelAnalytics.buildFunnelModel", js)
+        self.assertIn("function renderFunnelMap", js)
+        self.assertIn("function applyAnalyticsFilters", js)
+        self.assertIn("analytics-refresh-btn", js)
+
+        self.assertIn('.funnel-map', css)
+        self.assertIn('.funnel-node', css)
+        self.assertIn('.funnel-connector', css)
+        self.assertIn('.funnel-connector.aggregate-only', css)
+        self.assertIn('.analytics-data-quality', css)
+
 
 if __name__ == "__main__":
     unittest.main()

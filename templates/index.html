@@ -18,6 +18,7 @@
 
       <nav class="tabs" aria-label="Primary navigation tabs">
         <button type="button" class="tab active" data-target="crm" aria-selected="true"><span class="tab-icon">🧲</span><span>Leads</span></button>
+        <button type="button" class="tab" data-target="analytics" aria-selected="false"><span class="tab-icon">⌁</span><span>Funis</span></button>
         <button type="button" class="tab" data-target="agenda" aria-selected="false"><span class="tab-icon">🗓️</span><span>Agenda</span></button>
         <button type="button" class="tab" data-target="knowledge" aria-selected="false"><span class="tab-icon">📚</span><span>Mission KB</span></button>
         <button type="button" class="tab" data-target="fluxo" aria-selected="false"><span class="tab-icon">🔁</span><span>Fluxo</span></button>
@@ -78,6 +79,62 @@
               </div>
             </aside>
           </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-analytics" data-panel="analytics" data-testid="analytics-panel">
+          <header class="analytics-header">
+            <div>
+              <p class="analytics-eyebrow">VISÃO DE AQUISIÇÃO E CONVERSÃO</p>
+              <h2>Mapa de funis</h2>
+              <p class="muted">Acompanhe o caminho do tráfego até o resultado comercial usando os eventos do CRM.</p>
+            </div>
+            <button type="button" id="analytics-refresh-btn" class="quick-action">Atualizar dados</button>
+          </header>
+
+          <section class="analytics-filter-bar" aria-label="Filtros do funil">
+            <label>De
+              <input type="date" id="analytics-filter-from" />
+            </label>
+            <label>Até
+              <input type="date" id="analytics-filter-to" />
+            </label>
+            <label>Origem
+              <select id="analytics-filter-source"><option value="">Todas</option></select>
+            </label>
+            <label>Campanha
+              <select id="analytics-filter-campaign"><option value="">Todas</option></select>
+            </label>
+            <label>Oferta
+              <select id="analytics-filter-offer"><option value="">Todas</option></select>
+            </label>
+            <button type="button" id="analytics-clear-filters" class="quick-action subtle">Limpar</button>
+          </section>
+
+          <div id="analytics-status" class="status" role="status" aria-live="polite"></div>
+          <aside class="analytics-scope-note">
+            <strong>Dados próprios do CRM.</strong>
+            Visitas atribuídas representam sessões com UTM ou click ID — não impressões ou cliques reportados pelas plataformas de anúncios.
+          </aside>
+
+          <section id="analytics-funnel-map" class="funnel-map" aria-label="Fluxo de conversão"></section>
+          <section id="analytics-data-quality" class="analytics-data-quality" aria-label="Qualidade dos dados"></section>
+
+          <section class="analytics-breakdown-grid">
+            <article class="analytics-breakdown-card">
+              <header>
+                <div><span class="analytics-card-kicker">AQUISIÇÃO</span><h3>Anúncios atribuídos</h3></div>
+                <span id="analytics-attributed-total" class="analytics-card-total">0 sessões</span>
+              </header>
+              <div id="analytics-traffic-breakdown" class="analytics-breakdown-list"></div>
+            </article>
+            <article class="analytics-breakdown-card">
+              <header>
+                <div><span class="analytics-card-kicker">DESTINOS</span><h3>Landing pages</h3></div>
+                <span id="analytics-pages-total" class="analytics-card-total">0 páginas</span>
+              </header>
+              <div id="analytics-pages-breakdown" class="analytics-breakdown-list"></div>
+            </article>
+          </section>
         </section>
 
         <section class="card tab-panel is-hidden" id="panel-chat" data-panel="chat" data-testid="chat-panel" aria-label="Chat WhatsApp">
@@ -364,6 +421,7 @@
   </div>
 
   <script src="/static/vendor/phaser.min.js"></script>
+  <script src="/static/funnel-analytics.js"></script>
   <script src="/static/app.js?v=20260401hotfix1"></script>
 </body>
 </html>
