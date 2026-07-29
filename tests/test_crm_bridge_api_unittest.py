@@ -38,6 +38,11 @@ class CrmBridgeApiTests(unittest.TestCase):
         resp = self.client.get("/api/crm/bridge/proxy/api/crm/private")
         self.assertIn(resp.status_code, (400, 403))
 
+    def test_analytics_proxy_paths_are_allowlisted(self):
+        self.assertTrue(cockpit_app._is_safe_local_crm_target("api/crm/funnel-events"))
+        self.assertTrue(cockpit_app._is_safe_local_crm_target("api/crm/commercial"))
+        self.assertFalse(cockpit_app._is_safe_local_crm_target("api/crm/private"))
+
     def test_lead_operational_status_roundtrip(self):
         create = self.client.post(
             "/api/crm/bridge/lead-operational/123",

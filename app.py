@@ -176,7 +176,12 @@ if not CRM_PASS:
         CRM_USER = fallback_user
         CRM_PASS = fallback_pass
 
-CRM_ALLOWED_PROXY_PREFIXES = ("api/crm/overview", "api/crm/lead/")
+CRM_ALLOWED_PROXY_PREFIXES = (
+    "api/crm/overview",
+    "api/crm/lead/",
+    "api/crm/funnel-events",
+    "api/crm/commercial",
+)
 CRM_ENABLE_DEDUP = str(os.environ.get("OPENCLAW_COCKPIT_CRM_DEDUP", "false")).strip().lower() in {"1", "true", "yes", "on"}
 
 CRM_MERGED_MAP: dict[str, list[str]] = {}
