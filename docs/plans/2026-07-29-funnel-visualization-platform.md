@@ -18,9 +18,9 @@
 | Landing-page visitors | Unique `tracking_id` values with a view event | `ba_pro_funnel_events` | Anonymous visitors without a tracking ID cannot be deduplicated |
 | Leads | Unique `lead_id`, falling back to submission `tracking_id` | `ba_pro_funnel_events` | Depends on retroactive lead linking |
 | Checkout visitors | Unique `tracking_id`, falling back to event ID, with checkout activity | `ba_pro_funnel_events` | Checkout-link creation is intent, not purchase |
-| Purchases | `commercial.sales.sold_count` | Existing CRM commercial endpoint / Asaas reconciliation | Aggregate only until purchases are linked to tracking IDs |
+| Purchases | `commercial.sales.sold_count` | Existing CRM commercial endpoint / Asaas reconciliation | Aggregate only; shown as a separate outcome card until purchases are linked to tracking IDs |
 
-Every edge rate is `downstream / upstream`. The UI must display `N/D` when the denominator is zero and must label aggregate-only purchase attribution.
+Every cohort-compatible edge rate is `downstream / upstream`. The UI must display `N/D` when the denominator is zero. The checkout → purchase connector must remain dashed and show `Atribuição pendente`, never a percentage, while purchases are aggregate-only.
 
 ## Task 1: Protect the CRM proxy contract
 
@@ -117,7 +117,7 @@ Cover:
 - direct traffic is not counted as ad-attributed;
 - `utm_source`, `utm_campaign`, and `utm_content` grouping;
 - `page_path` fallback to `page_variant`;
-- purchase count is marked `aggregateOnly: true`;
+- purchase count is marked `aggregateOnly: true` and the checkout → purchase rate remains `null`;
 - date, source, campaign, and offer filters.
 
 Run each new test RED then GREEN.
@@ -303,7 +303,8 @@ Credentials remain outside Git and all connector scopes must be read-only.
 
 - [ ] A user can open Analytics inside the current CRM.
 - [ ] The screen visibly connects attributed traffic → pages → leads → checkout → purchases.
-- [ ] Each connector shows count and conversion rate.
+- [ ] Each cohort-compatible connector shows count and conversion rate.
+- [ ] Aggregate-only purchase data uses a dashed connector with no fabricated conversion rate.
 - [ ] Filters update the graph without a page reload.
 - [ ] Direct traffic is separated from ad-attributed traffic.
 - [ ] Aggregate-only purchase attribution is disclosed.
