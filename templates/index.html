@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CRM Danhausch</title>
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260729-funnel3" />
 </head>
 <body>
   <div class="app-shell">
@@ -18,15 +18,16 @@
 
       <nav class="tabs" aria-label="Primary navigation tabs">
         <button type="button" class="tab active" data-target="crm" aria-selected="true"><span class="tab-icon">🧲</span><span>Leads</span></button>
+        <button type="button" class="tab" data-target="analytics" aria-selected="false"><span class="tab-icon">⌁</span><span>Funis</span></button>
         <button type="button" class="tab" data-target="agenda" aria-selected="false"><span class="tab-icon">🗓️</span><span>Agenda</span></button>
         <button type="button" class="tab" data-target="knowledge" aria-selected="false"><span class="tab-icon">📚</span><span>Mission KB</span></button>
         <button type="button" class="tab" data-target="fluxo" aria-selected="false"><span class="tab-icon">🔁</span><span>Fluxo</span></button>
         <button type="button" class="tab" data-target="sdr" aria-selected="false"><span class="tab-icon">🤖</span><span>SDR</span></button>
-        <button type="button" class="tab" data-target="sdr-scripts" aria-selected="false"><span class="tab-icon">📝</span><span>Scripts</span></button>
       </nav>
 
       <div class="rail-footer">
         <p class="help">Painel de leads.</p>
+        <button type="button" id="logout-btn" class="quick-action" style="width:100%;margin-top:8px">Sair</button>
       </div>
     </aside>
 
@@ -78,6 +79,64 @@
               </div>
             </aside>
           </div>
+        </section>
+
+        <section class="card tab-panel is-hidden" id="panel-analytics" data-panel="analytics" data-testid="analytics-panel">
+          <header class="analytics-header">
+            <div>
+              <p class="analytics-eyebrow">VISÃO DE AQUISIÇÃO E CONVERSÃO</p>
+              <h2>Mapa de funis</h2>
+              <p class="muted">Acompanhe o caminho do tráfego até o resultado comercial usando os eventos do CRM.</p>
+            </div>
+            <button type="button" id="analytics-refresh-btn" class="quick-action">Atualizar dados</button>
+          </header>
+
+          <section class="analytics-filter-bar" aria-label="Filtros do funil">
+            <label>De
+              <input type="date" id="analytics-filter-from" />
+            </label>
+            <label>Até
+              <input type="date" id="analytics-filter-to" />
+            </label>
+            <label>Origem
+              <select id="analytics-filter-source"><option value="">Todas</option></select>
+            </label>
+            <label>Campanha
+              <select id="analytics-filter-campaign"><option value="">Todas</option></select>
+            </label>
+            <label>Oferta
+              <select id="analytics-filter-offer"><option value="">Todas</option></select>
+            </label>
+            <button type="button" id="analytics-clear-filters" class="quick-action subtle">Limpar</button>
+          </section>
+
+          <div id="analytics-status" class="status" role="status" aria-live="polite"></div>
+          <aside class="analytics-scope-note">
+            <strong>Dados próprios do CRM.</strong>
+            Visitas atribuídas representam sessões com UTM ou click ID — não impressões ou cliques reportados pelas plataformas de anúncios.
+            Este primeiro recorte usa até 500 eventos mais recentes e pode incluir acessos de QA e testes; o histórico completo e a exclusão automática de testes dependerão da agregação no backend.
+          </aside>
+
+          <p id="analytics-funnel-scroll-hint" class="sr-only" role="note">Em telas estreitas, use as teclas de seta para rolar horizontalmente pelas etapas do funil.</p>
+          <section id="analytics-funnel-map" class="funnel-map" tabindex="0" aria-label="Fluxo de conversão" aria-describedby="analytics-funnel-scroll-hint"></section>
+          <section id="analytics-data-quality" class="analytics-data-quality" aria-label="Qualidade dos dados"></section>
+
+          <section class="analytics-breakdown-grid">
+            <article class="analytics-breakdown-card">
+              <header>
+                <div><span class="analytics-card-kicker">AQUISIÇÃO</span><h3>Anúncios atribuídos</h3></div>
+                <span id="analytics-attributed-total" class="analytics-card-total">0 sessões</span>
+              </header>
+              <div id="analytics-traffic-breakdown" class="analytics-breakdown-list"></div>
+            </article>
+            <article class="analytics-breakdown-card">
+              <header>
+                <div><span class="analytics-card-kicker">DESTINOS</span><h3>Landing pages</h3></div>
+                <span id="analytics-pages-total" class="analytics-card-total">0 páginas</span>
+              </header>
+              <div id="analytics-pages-breakdown" class="analytics-breakdown-list"></div>
+            </article>
+          </section>
         </section>
 
         <section class="card tab-panel is-hidden" id="panel-chat" data-panel="chat" data-testid="chat-panel" aria-label="Chat WhatsApp">
@@ -293,49 +352,6 @@
           <div id="sdr-conversations" style="overflow-x:auto"></div>
         </section>
 
-        <!-- SDR Scripts Editor -->
-        <section class="card tab-panel is-hidden" id="panel-sdr-scripts" data-panel="sdr-scripts" data-testid="sdr-scripts-panel">
-          <header style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-            <div>
-              <h2>SDR Scripts</h2>
-              <p class="muted">Scripts de qualificacao editaveis em tempo real</p>
-            </div>
-            <button type="button" class="quick-action" id="sdr-new-script-btn" onclick="sdrNewScript()">+ Novo Script</button>
-          </header>
-          <div id="sdr-scripts-list"></div>
-          <div id="sdr-script-editor" class="is-hidden" style="margin-top:16px">
-            <input type="hidden" id="sdr-script-id" />
-            <label style="display:block;margin-bottom:8px">
-              Nome
-              <input type="text" id="sdr-script-name" style="width:100%;padding:6px 10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px" />
-            </label>
-            <label style="display:block;margin-bottom:8px">
-              Produto
-              <select id="sdr-script-product" style="padding:6px 10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px">
-                <option value="both">Ambos</option>
-                <option value="course">Curso</option>
-                <option value="mentoring">Mentoria</option>
-              </select>
-            </label>
-            <label style="display:block;margin-bottom:8px">
-              System Prompt
-              <textarea id="sdr-script-prompt" rows="10" style="width:100%;padding:10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px;font-family:monospace;font-size:12px"></textarea>
-            </label>
-            <label style="display:block;margin-bottom:8px">
-              Primeira Mensagem (use {name} para nome do lead)
-              <textarea id="sdr-script-first-msg" rows="3" style="width:100%;padding:10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px;font-size:13px"></textarea>
-            </label>
-            <label style="display:block;margin-bottom:8px">
-              Gatilhos de Escalacao (um por linha)
-              <textarea id="sdr-script-triggers" rows="3" style="width:100%;padding:10px;border:1px solid #333;background:#1a1a1a;color:#e5e5e5;border-radius:6px;font-size:13px"></textarea>
-            </label>
-            <div style="display:flex;gap:8px;margin-top:12px">
-              <button type="button" class="quick-action" onclick="sdrSaveScript()">Salvar</button>
-              <button type="button" class="quick-action" style="background:transparent;border:1px solid #333" onclick="sdrCancelEdit()">Cancelar</button>
-            </div>
-          </div>
-        </section>
-
       </main>
     </div>
   </div>
@@ -407,6 +423,7 @@
   </div>
 
   <script src="/static/vendor/phaser.min.js"></script>
-  <script src="/static/app.js?v=20260323fluxov2"></script>
+  <script src="/static/funnel-analytics.js?v=20260729-funnel3"></script>
+  <script src="/static/app.js?v=20260729-funnel3"></script>
 </body>
 </html>

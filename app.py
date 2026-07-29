@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import re
+import secrets
 import shlex
 import subprocess
 import threading
@@ -15,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, abort, jsonify, make_response, redirect, render_template, request, send_file, session, url_for
 from urllib.parse import unquote, urljoin, urlsplit
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -175,7 +176,14 @@ if not CRM_PASS:
         CRM_USER = fallback_user
         CRM_PASS = fallback_pass
 
-CRM_ALLOWED_PROXY_PREFIXES = ("api/crm/overview", "api/crm/lead/")
+CRM_ALLOWED_PROXY_PREFIXES = (
+    "api/crm/overview",
+    "api/crm/lead/",
+)
+CRM_ALLOWED_PROXY_EXACT_PATHS = (
+    "api/crm/funnel-events",
+    "api/crm/commercial",
+)
 CRM_ENABLE_DEDUP = str(os.environ.get("OPENCLAW_COCKPIT_CRM_DEDUP", "false")).strip().lower() in {"1", "true", "yes", "on"}
 
 CRM_MERGED_MAP: dict[str, list[str]] = {}
@@ -275,6 +283,23 @@ OFFICE_ZONE_LAYOUT: dict[str, dict[str, Any]] = {
 }
 
 app = Flask(__name__)
+
+# Session-based auth (used for reliable logout semantics in browsers).
+_SESSION_SECRET_FILE = DATA_DIR / "session_secret.txt"
+_secret = str(os.environ.get("OPENCLAW_CRM_SESSION_SECRET") or "").strip()
+if not _secret:
+    try:
+        if _SESSION_SECRET_FILE.exists():
+            _secret = _SESSION_SECRET_FILE.read_text("utf-8").strip()
+        else:
+            _secret = secrets.token_urlsafe(48)
+            _SESSION_SECRET_FILE.write_text(_secret, "utf-8")
+    except Exception:
+        _secret = secrets.token_urlsafe(48)
+app.secret_key = _secret
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = True
 ALBERT_STORE = AlbertStore(DATA_DIR)
 ALBERT_SESSION_LOCK = threading.Lock()
 _LAST_KANBAN_AUTO_SYNC_TS = 0.0
@@ -2250,8 +2275,105 @@ def _is_safe_local_crm_target(raw_path: str) -> bool:
         return False
     if clean.startswith(("http://", "https://")):
         return False
-    return any(clean.startswith(prefix) for prefix in CRM_ALLOWED_PROXY_PREFIXES)
+    return clean in CRM_ALLOWED_PROXY_EXACT_PATHS or any(
+        clean.startswith(prefix) for prefix in CRM_ALLOWED_PROXY_PREFIXES
+    )
 
+
+
+
+def _current_user() -> str | None:
+    user = session.get("crm_user")
+    return str(user).strip() if user else None
+
+
+def _verify_htpasswd_user(username: str, password: str) -> bool:
+    username = str(username or "").strip()
+    password = str(password or "")
+    if not username or not password:
+        return False
+
+    htpasswd_file = Path("/etc/nginx/.htpasswd_mission_control")
+    if not htpasswd_file.exists():
+        return False
+
+    try:
+        stored_hash = ""
+        for line in htpasswd_file.read_text("utf-8").splitlines():
+            if not line or ":" not in line:
+                continue
+            user, hashed = line.split(":", 1)
+            if user.strip() == username:
+                stored_hash = hashed.strip()
+                break
+        if not stored_hash:
+            return False
+
+        if stored_hash.startswith("$apr1$"):
+            parts = stored_hash.split("$")
+            if len(parts) < 4:
+                return False
+            salt = parts[2]
+            calc = subprocess.run(
+                ["openssl", "passwd", "-apr1", "-salt", salt, password],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            return calc.returncode == 0 and calc.stdout.strip() == stored_hash
+
+        # Fallback plain-text compare (only if explicitly stored that way).
+        return stored_hash == password
+    except Exception:
+        return False
+
+
+@app.before_request
+def _require_session_auth() -> Any:
+    path = request.path or "/"
+    if path.startswith("/static/"):
+        return None
+    if path in {"/login", "/logout", "/doc"}:
+        return None
+    # Keep service-to-service auth flows outside cookie session auth.
+    if path.startswith("/api/sdr/") or path.startswith("/api/alfred/"):
+        return None
+    if _current_user():
+        return None
+    if path.startswith("/api/"):
+        return jsonify({"error": "unauthorized"}), 401
+    return redirect(url_for("login", next=request.full_path if request.query_string else request.path))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login() -> Any:
+    next_url = request.args.get("next") or "/"
+    error = ""
+    if request.method == "POST":
+        next_url = str(request.form.get("next") or next_url or "/")
+        username = str(request.form.get("username") or "").strip()
+        password = str(request.form.get("password") or "")
+        if _verify_htpasswd_user(username, password):
+            session["crm_user"] = username
+            return redirect(next_url or "/")
+        error = "Usuário ou senha inválidos."
+
+    return make_response(
+        f"""
+<!doctype html>
+<html><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>CRM Login</title>
+<style>body{{font-family:Inter,Arial,sans-serif;background:#0b1020;color:#e5e7eb;display:grid;place-items:center;height:100vh;margin:0}}.card{{width:min(420px,92vw);background:#111827;border:1px solid #374151;border-radius:12px;padding:20px}}input{{width:100%;padding:10px;border-radius:8px;border:1px solid #374151;background:#0f172a;color:#fff;margin-top:6px}}button{{margin-top:14px;width:100%;padding:10px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-weight:600}}.err{{color:#fca5a5;margin-top:10px}}</style>
+</head><body><form class='card' method='post'>
+<h2 style='margin:0 0 12px'>CRM Login</h2>
+<label>Usuário<input name='username' autocomplete='username' required></label>
+<label style='display:block;margin-top:10px'>Senha<input type='password' name='password' autocomplete='current-password' required></label>
+<input type='hidden' name='next' value='{next_url}'>
+<button type='submit'>Entrar</button>
+<div class='err'>{error}</div>
+</form></body></html>
+        """.strip()
+    )
 
 @app.get("/")
 def index():
@@ -4915,7 +5037,24 @@ import sdr_engine
 
 
 def _sdr_expected_api_key() -> str:
-    return str(os.environ.get("OPENCLAW_SDR_API_KEY") or "").strip()
+    key = str(os.environ.get("OPENCLAW_SDR_API_KEY") or "").strip()
+    if key:
+        return key
+
+    # Fallback for service restarts that did not import cockpit env vars.
+    env_file = DATA_DIR / "sdr_api_env.sh"
+    try:
+        if env_file.exists():
+            for line in env_file.read_text("utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("OPENCLAW_SDR_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('\"').strip("'")
+    except Exception:
+        pass
+
+    return ""
 
 
 def _extract_bearer_token() -> str:
@@ -5168,9 +5307,43 @@ def _require_sdr_api_key() -> None:
     if not expected:
         return jsonify({"error": "sdr api key is not configured"}), 503
 
+    # Primary auth path for agent/backend integrations
     provided = _extract_bearer_token()
-    if not provided or not hmac.compare_digest(provided, expected):
-        return jsonify({"error": "unauthorized"}), 401
+    if provided and hmac.compare_digest(provided, expected):
+        return
+
+    # Compatibility path for CRM web UI calls from same-origin browser sessions.
+    # The UI does not attach OPENCLAW_SDR_API_KEY in Authorization headers.
+    host_url = (request.host_url or "").rstrip("/")
+    host_header = str(request.headers.get("X-Forwarded-Host") or request.headers.get("Host") or request.host or "").strip().lower()
+    origin = str(request.headers.get("Origin") or "").strip()
+    referer = str(request.headers.get("Referer") or "").strip()
+    user_agent = str(request.headers.get("User-Agent") or "")
+
+    def _origin_host(value: str) -> str:
+        if not value:
+            return ""
+        try:
+            parsed = urlsplit(value)
+            return (parsed.netloc or "").strip().lower()
+        except Exception:
+            return ""
+
+    origin_host = _origin_host(origin)
+    referer_host = _origin_host(referer)
+    host_url_host = _origin_host(host_url)
+    same_origin = bool(
+        (host_url and origin.startswith(host_url))
+        or (host_url and referer.startswith(host_url))
+        or (host_header and origin_host == host_header)
+        or (host_header and referer_host == host_header)
+        or (host_url_host and origin_host == host_url_host)
+        or (host_url_host and referer_host == host_url_host)
+    )
+    if same_origin and "Mozilla" in user_agent and _current_user():
+        return
+
+    return jsonify({"error": "unauthorized"}), 401
 
 
 @app.post("/api/sdr/conversations")
@@ -5604,6 +5777,12 @@ def api_sdr_agenda_create():
     events.append(event)
     (DATA_DIR / "agenda_events.json").write_text(json.dumps(events, indent=2, ensure_ascii=False), "utf-8")
     return jsonify({"data": event}), 201
+
+
+@app.get("/logout")
+def logout():
+    session.pop("crm_user", None)
+    return redirect(url_for("login"))
 
 
 if __name__ == "__main__":
