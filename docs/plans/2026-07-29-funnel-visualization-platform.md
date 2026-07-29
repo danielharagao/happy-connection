@@ -241,9 +241,19 @@ git commit -m "feat: render CRM funnel conversion graph"
 6. Run all Python and Node tests.
 7. Commit with `test: verify funnel visualization end to end`.
 
-## Task 6: Add server-side analytics aggregation
+## Task 6: Correct payment state and add server-side analytics aggregation
 
-**Objective:** Move bounded aggregation and date filtering into the funnel backend before event volume exceeds the 500-row client limit.
+**Objective:** Fix canonical payment state before moving bounded aggregation and date filtering into the funnel backend.
+
+**Production prerequisite — revenue integrity:**
+
+1. Add regression tests proving `PAYMENT_CREATED` / `CHECKOUT_CREATED` map to `checkout_started`, never `paid`.
+2. Change `_record_asaas_payment_event()` so `ba_pro_applications.status = 'paid'` only for purchase-success events.
+3. Change `_create_lead_from_asaas_payment()` so checkout-created leads start at `checkout_started`, not `paid`.
+4. Deduplicate purchase facts by provider `payment_id`; current timeline data contains more `purchase_success` rows than distinct payment IDs.
+5. Keep this correction in a separate reviewed commit and deploy it before using CRM stage as a purchase dimension.
+
+**Analytics objective:** Move bounded aggregation and date filtering into the funnel backend before event volume exceeds the 500-row client limit.
 
 **Files:**
 - Modify: `/root/.openclaw/workspace/funnel_backend.py`
