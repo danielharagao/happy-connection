@@ -14,7 +14,7 @@
 
 | Stage | Count | Source | Limitation |
 |---|---|---|---|
-| Ad-attributed visits | Unique `tracking_id` values carrying `utm_*`, `gclid`, or `fbclid` | `ba_pro_funnel_events` | This is not ad impressions or platform clicks |
+| Tracked traffic | All unique `tracking_id` values | `ba_pro_funnel_events` | Ad-attributed visits are a breakdown of this stage, not a separate denominator; neither value represents ad impressions |
 | Landing-page visitors | Unique `tracking_id` values with a view event | `ba_pro_funnel_events` | Anonymous visitors without a tracking ID cannot be deduplicated |
 | Leads | Unique `lead_id`, falling back to submission `tracking_id` | `ba_pro_funnel_events` | Depends on retroactive lead linking |
 | Checkout visitors | Unique `tracking_id`, falling back to event ID, with checkout activity | `ba_pro_funnel_events` | Checkout-link creation is intent, not purchase |
@@ -114,7 +114,7 @@ Cover:
 
 - session deduplication;
 - zero denominator returns `null` / `N/D`;
-- direct traffic is not counted as ad-attributed;
+- direct traffic remains in tracked traffic but is not counted in the ad-attributed breakdown;
 - `utm_source`, `utm_campaign`, and `utm_content` grouping;
 - `page_path` fallback to `page_variant`;
 - purchase count is marked `aggregateOnly: true` and the checkout → purchase rate remains `null`;
