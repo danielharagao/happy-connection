@@ -130,8 +130,54 @@ test('filters by dates and attribution dimensions', () => {
     campaign: 'ebook-july',
     offer: 'ebook',
   });
-  assert.equal(filtered.length, 3);
+  assert.equal(filtered.length, 4);
   assert.ok(filtered.every((event) => event.tracking_id === 't1'));
+});
+
+test('attribution filters retain the complete matching session cohort', () => {
+  const sparseAttribution = [
+    {
+      id: 20,
+      created_at: '2026-07-04 09:00:00',
+      event_name: 'attribution_ready',
+      tracking_id: 'sparse-1',
+      utm_source: 'meta',
+      utm_campaign: 'sparse-campaign',
+      offer: 'ebook',
+    },
+    {
+      id: 21,
+      created_at: '2026-07-04 09:01:00',
+      event_name: 'lp_view',
+      tracking_id: 'sparse-1',
+      page_path: '/ebook',
+    },
+    {
+      id: 22,
+      created_at: '2026-07-04 09:02:00',
+      event_name: 'lead_magnet_submit',
+      tracking_id: 'sparse-1',
+      lead_id: 20,
+    },
+    {
+      id: 23,
+      created_at: '2026-07-04 09:03:00',
+      event_name: 'lp_view',
+      tracking_id: 'other-session',
+      page_path: '/other',
+      utm_source: 'google',
+    },
+  ];
+
+  const filtered = filterEvents(sparseAttribution, {
+    source: 'meta',
+    campaign: 'sparse-campaign',
+    offer: 'ebook',
+  });
+  const model = buildFunnelModel(filtered, COMMERCIAL);
+
+  assert.deepEqual(filtered.map((event) => event.id), [20, 21, 22]);
+  assert.deepEqual(model.stages.slice(0, 3).map((stage) => stage.count), [1, 1, 1]);
 });
 
 test('returns null instead of a misleading percentage for a zero denominator', () => {

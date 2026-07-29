@@ -8,7 +8,8 @@
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test:funnel": "node --test tests/funnel_analytics.test.js",
+    "test:funnel-browser": "node tests/funnel_analytics.browser.test.js"
   },
   "keywords": [],
   "author": "",

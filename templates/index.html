@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CRM Danhausch</title>
-  <link rel="stylesheet" href="/static/styles.css?v=20260729-funnel2" />
+  <link rel="stylesheet" href="/static/styles.css?v=20260729-funnel3" />
 </head>
 <body>
   <div class="app-shell">
@@ -117,7 +117,8 @@
             Este primeiro recorte usa até 500 eventos mais recentes e pode incluir acessos de QA e testes; o histórico completo e a exclusão automática de testes dependerão da agregação no backend.
           </aside>
 
-          <section id="analytics-funnel-map" class="funnel-map" aria-label="Fluxo de conversão"></section>
+          <p id="analytics-funnel-scroll-hint" class="sr-only" role="note">Em telas estreitas, use as teclas de seta para rolar horizontalmente pelas etapas do funil.</p>
+          <section id="analytics-funnel-map" class="funnel-map" tabindex="0" aria-label="Fluxo de conversão" aria-describedby="analytics-funnel-scroll-hint"></section>
           <section id="analytics-data-quality" class="analytics-data-quality" aria-label="Qualidade dos dados"></section>
 
           <section class="analytics-breakdown-grid">
@@ -422,7 +423,7 @@
   </div>
 
   <script src="/static/vendor/phaser.min.js"></script>
-  <script src="/static/funnel-analytics.js?v=20260729-funnel2"></script>
-  <script src="/static/app.js?v=20260729-funnel2"></script>
+  <script src="/static/funnel-analytics.js?v=20260729-funnel3"></script>
+  <script src="/static/app.js?v=20260729-funnel3"></script>
 </body>
 </html>

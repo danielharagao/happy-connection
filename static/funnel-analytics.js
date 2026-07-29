@@ -25,19 +25,35 @@
   function filterEvents(events, filters = {}) {
     const from = clean(filters.from);
     const to = clean(filters.to);
-    const source = clean(filters.source).toLowerCase();
-    const campaign = clean(filters.campaign).toLowerCase();
-    const offer = clean(filters.offer).toLowerCase();
+    const dimensions = [
+      ['utm_source', clean(filters.source).toLowerCase()],
+      ['utm_campaign', clean(filters.campaign).toLowerCase()],
+      ['offer', clean(filters.offer).toLowerCase()],
+    ].filter(([, value]) => Boolean(value));
 
-    return (Array.isArray(events) ? events : []).filter((event) => {
+    const dateFiltered = (Array.isArray(events) ? events : []).filter((event) => {
       const date = eventDate(event);
       if (from && (!date || date < from)) return false;
       if (to && (!date || date > to)) return false;
-      if (source && clean(event.utm_source).toLowerCase() !== source) return false;
-      if (campaign && clean(event.utm_campaign).toLowerCase() !== campaign) return false;
-      if (offer && clean(event.offer).toLowerCase() !== offer) return false;
       return true;
     });
+
+    if (!dimensions.length) return dateFiltered;
+
+    let cohortIds = null;
+    for (const [field, expected] of dimensions) {
+      const matchingIds = new Set(
+        dateFiltered
+          .filter((event) => clean(event[field]).toLowerCase() === expected)
+          .map((event) => clean(event.tracking_id))
+          .filter(Boolean),
+      );
+      cohortIds = cohortIds == null
+        ? matchingIds
+        : new Set(Array.from(cohortIds).filter((trackingId) => matchingIds.has(trackingId)));
+    }
+
+    return dateFiltered.filter((event) => cohortIds.has(clean(event.tracking_id)));
   }
 
   function isAttributed(event) {
