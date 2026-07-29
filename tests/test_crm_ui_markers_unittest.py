@@ -65,6 +65,7 @@ class CrmUiMarkersTests(unittest.TestCase):
             'id="analytics-pages-breakdown"',
             'id="analytics-data-quality"',
             'Dados próprios do CRM',
+            'até 500 eventos mais recentes',
             '<script src="/static/funnel-analytics.js"></script>',
         ):
             self.assertIn(marker, html)
