@@ -179,6 +179,8 @@ if not CRM_PASS:
 CRM_ALLOWED_PROXY_PREFIXES = (
     "api/crm/overview",
     "api/crm/lead/",
+)
+CRM_ALLOWED_PROXY_EXACT_PATHS = (
     "api/crm/funnel-events",
     "api/crm/commercial",
 )
@@ -2273,7 +2275,9 @@ def _is_safe_local_crm_target(raw_path: str) -> bool:
         return False
     if clean.startswith(("http://", "https://")):
         return False
-    return any(clean.startswith(prefix) for prefix in CRM_ALLOWED_PROXY_PREFIXES)
+    return clean in CRM_ALLOWED_PROXY_EXACT_PATHS or any(
+        clean.startswith(prefix) for prefix in CRM_ALLOWED_PROXY_PREFIXES
+    )
 
 
 

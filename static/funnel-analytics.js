@@ -125,6 +125,7 @@
     const traffic = countUniqueTracking(safeEvents);
     const pages = countUniqueTracking(safeEvents.filter((event) => VIEW_EVENTS.has(clean(event.event_name))));
     const leads = leadCount(safeEvents);
+    const checkoutEvents = safeEvents.filter((event) => CHECKOUT_EVENTS.has(clean(event.event_name)));
     const checkout = checkoutCount(safeEvents);
     const purchases = Number(commercial && commercial.sales && commercial.sales.sold_count || 0);
     const attributed = new Set(safeEvents.filter(isAttributed).map((event) => clean(event.tracking_id)).filter(Boolean)).size;
@@ -146,7 +147,12 @@
     const edges = [
       { from: 'traffic', to: 'page', rate: formatRate(pages, traffic) },
       { from: 'page', to: 'lead', rate: formatRate(leads, pages) },
-      { from: 'lead', to: 'checkout', rate: formatRate(checkout, leads) },
+      {
+        from: 'lead',
+        to: 'checkout',
+        rate: checkoutEvents.length ? formatRate(checkout, leads) : null,
+        dataMissing: checkoutEvents.length === 0,
+      },
       { from: 'checkout', to: 'purchase', rate: null, aggregateOnly: true },
     ];
 
@@ -160,7 +166,7 @@
         events: safeEvents.length,
         linkedEvents,
         leadLinkRate: formatRate(linkedEvents, safeEvents.length),
-        checkoutEvents: safeEvents.filter((event) => CHECKOUT_EVENTS.has(clean(event.event_name))).length,
+        checkoutEvents: checkoutEvents.length,
         purchaseAttribution: 'aggregate',
       },
     };

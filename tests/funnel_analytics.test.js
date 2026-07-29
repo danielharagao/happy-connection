@@ -138,3 +138,12 @@ test('returns null instead of a misleading percentage for a zero denominator', (
   assert.equal(formatRate(2, 0), null);
   assert.equal(formatRate(1, 3), 33.3);
 });
+
+test('marks checkout conversion unavailable when checkout instrumentation is absent', () => {
+  const withoutCheckout = EVENTS.filter((event) => event.event_name !== 'checkout_click');
+  const model = buildFunnelModel(withoutCheckout, COMMERCIAL);
+  const checkoutEdge = model.edges.find((edge) => edge.to === 'checkout');
+  assert.equal(checkoutEdge.rate, null);
+  assert.equal(checkoutEdge.dataMissing, true);
+  assert.equal(model.dataQuality.checkoutEvents, 0);
+});

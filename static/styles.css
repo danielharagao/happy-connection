@@ -543,6 +543,8 @@ th, td { border-bottom:1px solid #1d2f4d; padding:8px; vertical-align: top; }
 .funnel-connector i { font-style:normal; font-size:23px; line-height:1; }
 .funnel-connector.aggregate-only { color:#f0b35a; }
 .funnel-connector.aggregate-only span { max-width:86px; white-space:normal; border-style:dashed; border-color:#8c6b3a; color:#f8d7a1; }
+.funnel-connector.data-missing { color:#ff7f7f; }
+.funnel-connector.data-missing span { max-width:64px; padding:3px 4px; white-space:normal; border-style:dashed; border-color:#8f4452; color:#ffc1c1; background:#281724; font-size:9px; line-height:1.1; }
 .analytics-data-quality { display:flex; flex-wrap:wrap; gap:7px; margin:10px 0 16px; }
 .analytics-data-quality span { padding:6px 9px; border:1px solid #28466f; border-radius:999px; background:#10213a; color:#9db6db; font-size:10px; }
 .analytics-data-quality strong { color:#dce9ff; }

@@ -35,13 +35,27 @@ class CrmBridgeApiTests(unittest.TestCase):
         self.assertIn("crm", payload)
 
     def test_crm_proxy_blocks_disallowed_paths(self):
-        resp = self.client.get("/api/crm/bridge/proxy/api/crm/private")
-        self.assertIn(resp.status_code, (400, 403))
+        with self.client.session_transaction() as session:
+            session["crm_user"] = "test-reviewer"
+
+        blocked_paths = (
+            "api/crm/private",
+            "api/crm/funnel-events-private",
+            "api/crm/funnel-events/private",
+            "api/crm/commercial/private",
+        )
+        for path in blocked_paths:
+            with self.subTest(path=path):
+                resp = self.client.get(f"/api/crm/bridge/proxy/{path}")
+                self.assertEqual(resp.status_code, 400)
 
     def test_analytics_proxy_paths_are_allowlisted(self):
         self.assertTrue(cockpit_app._is_safe_local_crm_target("api/crm/funnel-events"))
         self.assertTrue(cockpit_app._is_safe_local_crm_target("api/crm/commercial"))
         self.assertFalse(cockpit_app._is_safe_local_crm_target("api/crm/private"))
+        self.assertFalse(cockpit_app._is_safe_local_crm_target("api/crm/funnel-events-private"))
+        self.assertFalse(cockpit_app._is_safe_local_crm_target("api/crm/funnel-events/private"))
+        self.assertFalse(cockpit_app._is_safe_local_crm_target("api/crm/commercial/private"))
 
     def test_lead_operational_status_roundtrip(self):
         create = self.client.post(

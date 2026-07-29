@@ -127,6 +127,7 @@ function analyticsFormatMoney(value) {
 
 function analyticsRateLabel(edge) {
   if (edge.aggregateOnly) return 'Atribuição pendente';
+  if (edge.dataMissing) return 'Não medido';
   return edge.rate == null ? 'N/D' : `${edge.rate.toLocaleString('pt-BR')}%`;
 }
 
@@ -137,8 +138,9 @@ function renderFunnelMap(model) {
   model.stages.forEach((stage, index) => {
     const previousEdge = index > 0 ? model.edges[index - 1] : null;
     if (previousEdge) {
+      const connectorHint = previousEdge.dataMissing ? 'Sem instrumentação de checkout' : analyticsRateLabel(previousEdge);
       parts.push(`
-        <div class="funnel-connector ${previousEdge.aggregateOnly ? 'aggregate-only' : ''}" aria-label="Conversão ${escapeHtml(analyticsRateLabel(previousEdge))}">
+        <div class="funnel-connector ${previousEdge.aggregateOnly ? 'aggregate-only' : ''} ${previousEdge.dataMissing ? 'data-missing' : ''}" aria-label="Conversão ${escapeHtml(connectorHint)}" title="${escapeHtml(connectorHint)}">
           <span>${escapeHtml(analyticsRateLabel(previousEdge))}</span>
           <i aria-hidden="true">→</i>
         </div>
